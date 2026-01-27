@@ -117,6 +117,9 @@ interface ToolCardProps {
   onEquip?: () => void;
   onUnequip?: () => void;
   onClick?: () => void;
+  onDragStart?: (e: React.DragEvent, tool: Tool) => void;
+  onDragEnd?: () => void;
+  draggable?: boolean;
   className?: string;
   showDetails?: boolean;
 }
@@ -128,14 +131,19 @@ export function ToolCard({
   onEquip,
   onUnequip,
   onClick,
+  onDragStart,
+  onDragEnd,
+  draggable = false,
   className = "",
   showDetails = true,
 }: ToolCardProps) {
   const [isHovered, setIsHovered] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const typeConfig = TOOL_TYPE_CONFIG[tool.type];
   const rarityConfig = RARITY_CONFIG[tool.rarity];
 
   const handleClick = () => {
+    if (isDragging) return;
     if (onClick) {
       onClick();
     } else if (isEquipped && onUnequip) {
@@ -143,6 +151,18 @@ export function ToolCard({
     } else if (!isEquipped && isEquippable && onEquip) {
       onEquip();
     }
+  };
+
+  const handleDragStart = (e: React.DragEvent) => {
+    setIsDragging(true);
+    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.setData("application/json", JSON.stringify(tool));
+    onDragStart?.(e, tool);
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    onDragEnd?.();
   };
 
   return (
@@ -154,9 +174,13 @@ export function ToolCard({
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
       onClick={handleClick}
+      draggable={draggable}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       className={`
         relative rounded-lg overflow-hidden cursor-pointer transition-all duration-200
         ${isEquipped ? "ring-2 ring-offset-2 ring-offset-gray-900" : ""}
+        ${draggable ? "cursor-grab active:cursor-grabbing" : ""}
         ${className}
       `}
       style={{
@@ -297,6 +321,8 @@ interface ToolListItemProps {
   onEquip?: () => void;
   onUnequip?: () => void;
   onClick?: () => void;
+  onDragStart?: (e: React.DragEvent, tool: Tool) => void;
+  draggable?: boolean;
 }
 
 export function ToolListItem({
@@ -305,17 +331,28 @@ export function ToolListItem({
   onEquip,
   onUnequip,
   onClick,
+  onDragStart,
+  draggable = false,
 }: ToolListItemProps) {
   const typeConfig = TOOL_TYPE_CONFIG[tool.type];
   const rarityConfig = RARITY_CONFIG[tool.rarity];
+
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.setData("application/json", JSON.stringify(tool));
+    onDragStart?.(e, tool);
+  };
 
   return (
     <motion.div
       whileHover={{ x: 4 }}
       onClick={onClick}
+      draggable={draggable}
+      onDragStart={handleDragStart}
       className={`
         flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all
         ${isEquipped ? "bg-empire-gold/20 border border-empire-gold" : "bg-gray-800/80 border border-gray-700 hover:border-gray-600"}
+        ${draggable ? "cursor-grab active:cursor-grabbing" : ""}
       `}
     >
       {/* Tool icon */}
