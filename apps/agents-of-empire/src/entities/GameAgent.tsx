@@ -113,8 +113,6 @@ const AGENT_STATE_ICONS: Record<AgentState, string> = {
 // Performance Configuration
 // ============================================================================
 
-const MAX_AGENTS = 500;
-const AGENT_BODY_HEIGHT = 1.5;
 const AGENT_SCALE = 0.8;
 
 // ============================================================================
@@ -409,6 +407,7 @@ export function GameAgentVisual({
   // Color based on state with smooth transition
   const targetColor = useMemo(() => new Color(AGENT_STATE_COLORS[agent.state]), [agent.state]);
   const targetEmissive = useMemo(() => new Color(AGENT_STATE_EMISSIVE[agent.state]), [agent.state]);
+<<<<<<< HEAD
   const [currentColor, setCurrentColor] = useState(targetColor.clone());
   const [currentEmissive, setCurrentEmissive] = useState(targetEmissive.clone());
 
@@ -417,6 +416,16 @@ export function GameAgentVisual({
     const lerpFactor = Math.min(delta / COLOR_TRANSITION_DURATION, 1);
     currentColor.lerp(targetColor, lerpFactor);
     currentEmissive.lerp(targetEmissive, lerpFactor);
+=======
+  const currentColorRef = useRef(targetColor.clone());
+  const currentEmissiveRef = useRef(targetEmissive.clone());
+
+  // Smooth color transition
+  useFrame((_state, delta) => {
+    const lerpFactor = Math.min(delta / COLOR_TRANSITION_DURATION, 1);
+    currentColorRef.current.lerp(targetColor, lerpFactor);
+    currentEmissiveRef.current.lerp(targetEmissive, lerpFactor);
+>>>>>>> origin/main
   });
 
   // Enhanced state-based animations
@@ -522,8 +531,13 @@ export function GameAgentVisual({
         <mesh castShadow position={[0, 0.5, 0]}>
           <boxGeometry args={[0.8, 1, 0.5]} />
           <meshStandardMaterial
+<<<<<<< HEAD
             color={currentColor}
             emissive={currentEmissive}
+=======
+            color={currentColorRef.current}
+            emissive={currentEmissiveRef.current}
+>>>>>>> origin/main
             emissiveIntensity={(stateConfig.glowIntensity || 0.3) * 0.5}
           />
         </mesh>
@@ -532,8 +546,13 @@ export function GameAgentVisual({
         <mesh castShadow position={[0, 1.2, 0]}>
           <boxGeometry args={[0.5, 0.5, 0.5]} />
           <meshStandardMaterial
+<<<<<<< HEAD
             color={currentColor}
             emissive={currentEmissive}
+=======
+            color={currentColorRef.current}
+            emissive={currentEmissiveRef.current}
+>>>>>>> origin/main
             emissiveIntensity={(stateConfig.glowIntensity || 0.3) * 0.5}
           />
         </mesh>
@@ -543,8 +562,13 @@ export function GameAgentVisual({
           <mesh castShadow position={[0, 0, 0]}>
             <boxGeometry args={[0.2, 0.6, 0.2]} />
             <meshStandardMaterial
+<<<<<<< HEAD
               color={currentColor}
               emissive={currentEmissive}
+=======
+              color={currentColorRef.current}
+              emissive={currentEmissiveRef.current}
+>>>>>>> origin/main
               emissiveIntensity={(stateConfig.glowIntensity || 0.3) * 0.5}
             />
           </mesh>
@@ -553,8 +577,13 @@ export function GameAgentVisual({
           <mesh castShadow position={[0, 0, 0]}>
             <boxGeometry args={[0.2, 0.6, 0.2]} />
             <meshStandardMaterial
+<<<<<<< HEAD
               color={currentColor}
               emissive={currentEmissive}
+=======
+              color={currentColorRef.current}
+              emissive={currentEmissiveRef.current}
+>>>>>>> origin/main
               emissiveIntensity={(stateConfig.glowIntensity || 0.3) * 0.5}
             />
           </mesh>
@@ -564,16 +593,26 @@ export function GameAgentVisual({
         <mesh castShadow position={[-0.2, -0.3, 0]}>
           <boxGeometry args={[0.2, 0.4, 0.2]} />
           <meshStandardMaterial
+<<<<<<< HEAD
             color={currentColor}
             emissive={currentEmissive}
+=======
+            color={currentColorRef.current}
+            emissive={currentEmissiveRef.current}
+>>>>>>> origin/main
             emissiveIntensity={(stateConfig.glowIntensity || 0.3) * 0.5}
           />
         </mesh>
         <mesh castShadow position={[0.2, -0.3, 0]}>
           <boxGeometry args={[0.2, 0.4, 0.2]} />
           <meshStandardMaterial
+<<<<<<< HEAD
             color={currentColor}
             emissive={currentEmissive}
+=======
+            color={currentColorRef.current}
+            emissive={currentEmissiveRef.current}
+>>>>>>> origin/main
             emissiveIntensity={(stateConfig.glowIntensity || 0.3) * 0.5}
           />
         </mesh>
@@ -662,15 +701,6 @@ export function InstancedAgentRenderer({
   const headMeshRef = useRef<InstancedMesh>(null);
   const dummy = useMemo(() => new Object3D(), []);
   const color = useMemo(() => new Color(), []);
-
-  // Agent data maps for quick lookup
-  const agentMap = useMemo(() => {
-    const map = new Map<string, GameAgentType>();
-    for (const agent of agents) {
-      map.set(agent.id, agent);
-    }
-    return map;
-  }, [agents]);
 
   // Get IDs of agents that need individual rendering (selected or hovered)
   const specialAgentIds = useMemo(() => {
@@ -998,8 +1028,6 @@ export function AgentSpawnEffect({ position, onComplete }: AgentSpawnEffectProps
     </group>
   );
 }
-
-import React from "react";
 
 // ============================================================================
 // Export types and components
