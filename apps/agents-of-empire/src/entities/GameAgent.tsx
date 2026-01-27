@@ -1,8 +1,8 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { Group, Vector3, Color, Object3D, InstancedMesh } from "three";
 import { Text } from "@react-three/drei";
-import { useGameStore, useAgentsShallow, type AgentState, type GameAgent as GameAgentType } from "../store/gameStore";
+import { useGameStore, useAgentsShallow, type AgentState, type GameAgent as GameAgentType, type Tool } from "../store/gameStore";
 
 // ============================================================================
 // Agent State Visual Configurations

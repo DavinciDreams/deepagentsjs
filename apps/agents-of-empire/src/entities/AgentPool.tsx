@@ -99,7 +99,7 @@ export function useAgentPool(options: AgentPoolOptions = {}) {
 
   const despawnAllAgents = useCallback(() => {
     const { agents } = useGameStore.getState();
-    for (const [id] of agents) {
+    for (const id in agents) {
       despawnAgent(id);
     }
   }, [despawnAgent]);
@@ -134,9 +134,9 @@ export function InitialAgents({ count = 100 }: InitialAgentsProps) {
 
     // Add default tools to agents
     const defaultTools = [
-      { id: "search", name: "Search", type: "search" as const, icon: "🔍", description: "Search the web" },
-      { id: "read", name: "File Reader", type: "file_reader" as const, icon: "📜", description: "Read files" },
-      { id: "code", name: "Code Executor", type: "code_executor" as const, icon: "🔨", description: "Execute code" },
+      { id: "search", name: "Search", type: "search" as const, icon: "🔍", description: "Search the web", rarity: "common" as const },
+      { id: "read", name: "File Reader", type: "file_reader" as const, icon: "📜", description: "Read files", rarity: "common" as const },
+      { id: "code", name: "Code Executor", type: "code_executor" as const, icon: "🔨", description: "Execute code", rarity: "rare" as const },
     ];
 
     newAgents?.forEach((agent: GameAgent) => {

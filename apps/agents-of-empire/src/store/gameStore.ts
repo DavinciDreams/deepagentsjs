@@ -39,6 +39,14 @@ export interface GameAgent {
   childrenIds: string[]; // For tracking spawned subagents
   thoughtBubble: string | null;
   lastToolCall: string | null;
+  // Pathfinding
+  currentPath: [number, number][] | null; // Current A* path being followed
+  pathIndex: number; // Current index in the path
+  lastMove?: number; // Timestamp of last movement update
+  // State timers
+  thinkStart?: number;
+  workStart?: number;
+  completeStart?: number;
 }
 
 export type DragonType = "SYNTAX" | "RUNTIME" | "NETWORK" | "PERMISSION" | "UNKNOWN";
@@ -163,6 +171,7 @@ interface GameActions {
   setAgentState: (id: string, state: AgentState) => void;
   setAgentPosition: (id: string, position: [number, number, number]) => void;
   setAgentTarget: (id: string, target: [number, number, number]) => void;
+  setAgentPath: (id: string, path: [number, number][] | null) => void;
   equipTool: (agentId: string, tool: Tool) => void;
   unequipTool: (agentId: string) => void;
   addToolToInventory: (agentId: string, tool: Tool) => void;
@@ -280,6 +289,30 @@ export const useGameStore = create<GameStore>()(
           state.tiles[key] = { x, z, type, walkable: type !== "water" };
         }
       }
+
+      // Create some obstacle clusters for pathfinding demonstration
+      // Obstacle cluster 1 - near center
+      const obstacleClusters = [
+        { centerX: 15, centerZ: 15, radius: 3 },
+        { centerX: 35, centerZ: 35, radius: 4 },
+        { centerX: 15, centerZ: 35, radius: 2 },
+        { centerX: 35, centerZ: 15, radius: 2 },
+      ];
+
+      for (const cluster of obstacleClusters) {
+        for (let dx = -cluster.radius; dx <= cluster.radius; dx++) {
+          for (let dz = -cluster.radius; dz <= cluster.radius; dz++) {
+            if (dx * dx + dz * dz <= cluster.radius * cluster.radius) {
+              const ox = cluster.centerX + dx;
+              const oz = cluster.centerZ + dz;
+              if (ox >= 0 && ox < width && oz >= 0 && oz < height) {
+                const key = `${ox},${oz}`;
+                state.tiles[key] = { x: ox, z: oz, type: "stone", walkable: false };
+              }
+            }
+          }
+        }
+      }
     });
   },
 
@@ -313,6 +346,8 @@ export const useGameStore = create<GameStore>()(
       childrenIds: [],
       thoughtBubble: null,
       lastToolCall: null,
+      currentPath: null,
+      pathIndex: 0,
     };
 
     set((state) => {
@@ -412,6 +447,10 @@ export const useGameStore = create<GameStore>()(
 
   setAgentTarget: (id, target) => {
     get().updateAgent(id, { targetPosition: target });
+  },
+
+  setAgentPath: (id, path) => {
+    get().updateAgent(id, { currentPath: path, pathIndex: 0 });
   },
 
   equipTool: (agentId, tool) => {

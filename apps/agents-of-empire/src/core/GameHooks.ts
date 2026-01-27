@@ -1,7 +1,8 @@
 import { useRef, useCallback, useState, useEffect } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Vector3 } from "three";
-import { useGameStore, useAgentsShallow, useDragonsShallow, useQuestsShallow, type AgentState } from "../store/gameStore";
+import { useGameStore, useAgentsShallow, useDragonsShallow, useQuestsShallow, useTilesShallow, type AgentState } from "../store/gameStore";
+import { findPath } from "../world/WorldManager";
 
 // ============================================================================
 // Game Configuration
@@ -28,11 +29,14 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
   const lastTick = useRef(0);
   const tickAccumulator = useRef(0);
   const tickInterval = 1000 / tickRate;
+  const tiles = useTilesShallow() as Record<string, { walkable: boolean }>;
+  const worldSize = useGameStore((state) => state.worldSize);
 
   // Don't subscribe to agents/dragons - use getState() in useFrame instead
   // This prevents infinite re-renders inside Canvas
   const updateAgent = useGameStore((state) => state.updateAgent);
   const updateDragon = useGameStore((state) => state.updateDragon);
+  const setAgentPath = useGameStore((state) => state.setAgentPath);
 
   // Game tick - runs every frame at tick rate
   useFrame((_, delta) => {
@@ -70,32 +74,84 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
     }
   }, []);
 
-  // Move agent towards target
+  // Move agent towards target using pathfinding
   const moveAgentTowardsTarget = useCallback((agent: any, now: number) => {
     const speed = 5; // units per second
     const current = new Vector3(...agent.position);
     const target = new Vector3(...agent.targetPosition);
+    const store = useGameStore.getState();
 
-    const direction = target.clone().sub(current);
-    const distance = direction.length();
+    // Check if we need to compute a new path
+    if (!agent.currentPath && agent.targetPosition) {
+      const startX = Math.floor(current.x);
+      const startZ = Math.floor(current.z);
+      const endX = Math.floor(target.x);
+      const endZ = Math.floor(target.z);
 
-    if (distance < 0.1) {
-      // Arrived
-      useGameStore.getState().updateAgent(agent.id, {
-        position: [target.x, target.y, target.z],
-        targetPosition: null,
-        state: agent.currentTask ? "WORKING" : "IDLE",
-      });
-      return;
+      // Compute A* path
+      const path = findPath(startX, startZ, endX, endZ, tiles, worldSize.width, worldSize.height);
+
+      if (path && path.length > 0) {
+        // Path found - set it on the agent
+        setAgentPath(agent.id, path);
+      } else {
+        // No path found - move directly (fallback behavior)
+        const direction = target.clone().sub(current);
+        const distance = direction.length();
+
+        if (distance < 0.1) {
+          store.updateAgent(agent.id, {
+            position: [target.x, target.y, target.z],
+            targetPosition: null,
+            currentPath: null,
+            state: agent.currentTask ? "WORKING" : "IDLE",
+          });
+          return;
+        }
+
+        const moveDist = speed * 0.016; // Approximate delta time
+        direction.normalize().multiplyScalar(Math.min(moveDist, distance));
+
+        const newPos = current.add(direction);
+        store.setAgentPosition(agent.id, [newPos.x, newPos.y, newPos.z]);
+        store.updateAgent(agent.id, { lastMove: now });
+        return;
+      }
     }
 
-    const moveDist = speed / (1000 / (performance.now() - (agent.lastMove || now)));
-    direction.normalize().multiplyScalar(Math.min(moveDist, distance));
+    // Follow the computed path
+    if (agent.currentPath && agent.pathIndex < agent.currentPath.length) {
+      const nextTile = agent.currentPath[agent.pathIndex];
+      const nextPos = new Vector3(nextTile[0] + 0.5, 0, nextTile[1] + 0.5);
+      const direction = nextPos.sub(current);
+      const distance = direction.length();
 
-    const newPos = current.add(direction);
-    useGameStore.getState().setAgentPosition(agent.id, [newPos.x, newPos.y, newPos.z]);
-    useGameStore.getState().updateAgent(agent.id, { lastMove: now });
-  }, []);
+      if (distance < 0.2) {
+        // Reached this waypoint, move to next
+        store.updateAgent(agent.id, { pathIndex: agent.pathIndex + 1 });
+
+        // Check if we've reached the final destination
+        if (agent.pathIndex + 1 >= agent.currentPath.length) {
+          const finalTarget = new Vector3(...agent.targetPosition);
+          store.updateAgent(agent.id, {
+            position: [finalTarget.x, finalTarget.y, finalTarget.z],
+            targetPosition: null,
+            currentPath: null,
+            pathIndex: 0,
+            state: agent.currentTask ? "WORKING" : "IDLE",
+          });
+        }
+      } else {
+        // Move towards next waypoint
+        const moveDist = speed * 0.016; // Approximate delta time
+        direction.normalize().multiplyScalar(Math.min(moveDist, distance));
+
+        const newPos = current.add(direction);
+        store.setAgentPosition(agent.id, [newPos.x, newPos.y, newPos.z]);
+        store.updateAgent(agent.id, { lastMove: now });
+      }
+    }
+  }, [tiles, worldSize, setAgentPath]);
 
   // Update agent state based on current state
   const updateAgentState = useCallback((agent: any, now: number) => {
