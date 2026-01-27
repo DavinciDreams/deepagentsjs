@@ -600,7 +600,7 @@ export const useGameStore = create<GameStore>()(
   },
 
   setZoom: (zoom) => {
-    set({ zoom: Math.max(0.5, Math.min(3, zoom)) });
+    set({ zoom: Math.max(0.2, Math.min(5.0, zoom)) });
   },
 
   setCameraRotation: (rotation) => {
