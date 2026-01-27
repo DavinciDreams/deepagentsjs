@@ -5,6 +5,8 @@ import { useGameStore, useSelectedAgentIds, useAgentsMap, useAgentsShallow, useQ
 import { useAgentBridgeContext } from "../bridge/AgentBridge";
 import { useCombat } from "../entities/Dragon";
 import { ToolCard, ToolListItem, ToolIcon, RarityBadge, TOOL_TYPE_CONFIG, RARITY_CONFIG } from "./ToolCard";
+import { screenToWorld } from "../core/CameraController";
+import { useAgentBridge } from "../bridge/AgentBridge";
 
 // ============================================================================
 // Minimap Component
@@ -406,6 +408,10 @@ export function InventoryPanel({ agentId, onClose, viewMode = "list" }: Inventor
                 onEquip={() => equipTool(agentId, tool)}
                 onUnequip={() => unequipTool(agentId)}
                 showDetails={false}
+                draggable={true}
+                onDragStart={(e, tool) => {
+                  console.log(`[Drag] Started dragging ${tool.name}`);
+                }}
               />
             ))}
           </div>
@@ -418,6 +424,10 @@ export function InventoryPanel({ agentId, onClose, viewMode = "list" }: Inventor
                 isEquipped={agent.equippedTool?.id === tool.id}
                 onEquip={() => equipTool(agentId, tool)}
                 onUnequip={() => unequipTool(agentId)}
+                draggable={true}
+                onDragStart={(e, tool) => {
+                  console.log(`[Drag] Started dragging ${tool.name}`);
+                }}
               />
             ))}
           </div>
@@ -721,13 +731,101 @@ export function HUD({ className = "" }: HUDProps) {
   const closeContextMenu = useGameStore((state) => state.closeContextMenu);
   const spawnDragon = useGameStore((state) => state.spawnDragon);
   const agents = useAgentsShallow();
+  const bridge = useAgentBridge();
+  const equipTool = useGameStore((state) => state.equipTool);
 
-  // Keyboard shortcuts for testing (COMB-001: Dragon spawn test)
+  // Handle drag and drop for tool equipping
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+
+      // Get the tool data
+      const toolData = e.dataTransfer.getData("application/json");
+      if (!toolData) return;
+
+      try {
+        const tool: Tool = JSON.parse(toolData);
+
+        // Get drop position
+        const dropX = e.clientX;
+        const dropY = e.clientY;
+
+        // Find the closest agent to the drop position
+        const canvas = document.querySelector("canvas");
+        if (!canvas) return;
+
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        const camera = (window as any).gameCamera;
+
+        if (camera) {
+          const worldPos = screenToWorld(dropX, dropY, camera, width, height);
+          if (worldPos) {
+            // Find closest agent
+            let closestAgentId: string | null = null;
+            let closestDistance = Infinity;
+
+            const agentList = Object.values(agents);
+            for (const agent of agentList) {
+              const dx = agent.position[0] - worldPos.x;
+              const dz = agent.position[2] - worldPos.z;
+              const distance = Math.sqrt(dx * dx + dz * dz);
+
+              if (distance < 3 && distance < closestDistance) {
+                closestDistance = distance;
+                closestAgentId = agent.id;
+              }
+            }
+
+            // Equip the tool to the closest agent
+            if (closestAgentId) {
+              equipTool(closestAgentId, tool);
+              console.log(`[Drag & Drop] Equipped ${tool.name} to agent ${closestAgentId}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error handling tool drop:", err);
+      }
+    };
+
+    document.addEventListener("dragover", handleDragOver);
+    document.addEventListener("drop", handleDrop);
+
+    // Store camera reference for raycasting
+    const updateCameraRef = () => {
+      const canvas = document.querySelector("canvas");
+      if (canvas && canvas.children[0]) {
+        (window as any).gameCamera = (canvas.children[0] as any).camera;
+      }
+    };
+
+    updateCameraRef();
+    const observer = new MutationObserver(updateCameraRef);
+    const canvas = document.querySelector("canvas");
+    if (canvas) {
+      observer.observe(canvas, { childList: true });
+    }
+
+    return () => {
+      document.removeEventListener("dragover", handleDragOver);
+      document.removeEventListener("drop", handleDrop);
+      observer.disconnect();
+    };
+  }, [agents, equipTool]);
+
+  // Keyboard shortcuts for testing (COMB-001: Dragon spawn test, Phase 2 tests)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const agentList = Object.values(agents);
+
       // Shift+D to spawn a test dragon
       if (e.shiftKey && e.key === "D") {
-        const agentList = Object.values(agents);
         if (agentList.length > 0) {
           const randomAgent = agentList[Math.floor(Math.random() * agentList.length)];
           const errorTypes = [
@@ -747,11 +845,38 @@ export function HUD({ className = "" }: HUDProps) {
           console.log(`[COMB-001 Test] Spawned ${randomError.type} dragon at ${randomAgent.name}'s location`);
         }
       }
+
+      // Shift+R to test file read operation
+      if (e.shiftKey && e.key === "R") {
+        if (agentList.length > 0) {
+          const randomAgent = agentList[Math.floor(Math.random() * agentList.length)];
+          bridge.handleFileRead(randomAgent.id, "config.json");
+          console.log(`[Phase 2 Test] File read operation on ${randomAgent.name}`);
+        }
+      }
+
+      // Shift+W to test file write operation
+      if (e.shiftKey && e.key === "W" && !e.ctrlKey) {
+        if (agentList.length > 0) {
+          const randomAgent = agentList[Math.floor(Math.random() * agentList.length)];
+          bridge.handleFileWrite(randomAgent.id, "output.md");
+          console.log(`[Phase 2 Test] File write operation on ${randomAgent.name}`);
+        }
+      }
+
+      // Shift+S to test subagent spawn
+      if (e.shiftKey && e.key === "S") {
+        if (agentList.length > 0) {
+          const randomAgent = agentList[Math.floor(Math.random() * agentList.length)];
+          bridge.handleSubagentSpawn(randomAgent.id, "Subagent-" + randomAgent.name);
+          console.log(`[Phase 2 Test] Subagent spawned from ${randomAgent.name}`);
+        }
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [agents, spawnDragon]);
+  }, [agents, spawnDragon, bridge]);
 
   return (
     <div className={`pointer-events-none ${className}`}>

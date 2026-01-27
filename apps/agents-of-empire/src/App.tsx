@@ -11,6 +11,7 @@ import { InitialAgents, useAgentPool } from "./entities/AgentPool";
 import { AgentPool } from "./entities/GameAgent";
 import { DragonPool } from "./entities/Dragon";
 import { StructurePool } from "./entities/Structure";
+import { FileOperationPool, useFileOperations } from "./entities/FileOperation";
 import { ConnectionLines, ConnectionLegend } from "./entities/ConnectionLines";
 import { HUD } from "./ui/HUD";
 import { useGameStore } from "./store/gameStore";
@@ -249,6 +250,7 @@ function GameScene() {
       <ConnectionLines enabled={true} maxConnections={100} />
 
       <DragonPool />
+      <FileOperationPoolWrapper />
       <StructurePool
         onStructureClick={handleStructureClick}
         onStructureRightClick={handleStructureRightClick}
@@ -363,6 +365,15 @@ export default function App() {
       </Suspense>
     </div>
   );
+}
+
+// ============================================================================
+// File Operation Pool Wrapper
+// ============================================================================()
+
+function FileOperationPoolWrapper() {
+  const { operations } = useFileOperations();
+  return <FileOperationPool operations={operations} />;
 }
 
 // ============================================================================

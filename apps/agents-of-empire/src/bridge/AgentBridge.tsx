@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, createContext, useContext } from "react
 import { v4 as uuidv4 } from "uuid";
 import { useGameStore, type GameAgent, type AgentState, type DragonType } from "../store/gameStore";
 import type { DeepAgent, DeepAgentTypeConfig } from "deepagents";
+import { useFileOperations } from "../entities/FileOperation";
 
 // ============================================================================
 // Types
@@ -74,6 +75,7 @@ export function useAgentBridge() {
   const setThoughtBubble = useGameStore((state) => state.setThoughtBubble);
   const spawnDragon = useGameStore((state) => state.spawnDragon);
   const removeDragon = useGameStore((state) => state.removeDragon);
+  const { addOperation } = useFileOperations();
 
   // Spawn a new Deep Agent and create visual representation
   const spawnDeepAgent = useCallback(
@@ -136,7 +138,7 @@ export function useAgentBridge() {
   // Handle error -> dragon spawn
   const handleError = useCallback(
     (agentId: string, error: string) => {
-      const agent = useGameStore.getState().agents.get(agentId);
+      const agent = useGameStore.getState().agents[agentId];
       if (!agent) return;
 
       const dragonType = ERROR_TO_DRAGON_TYPE(error);
@@ -158,7 +160,7 @@ export function useAgentBridge() {
   // Handle subagent spawn
   const handleSubagentSpawn = useCallback(
     (parentAgentId: string, subagentName: string) => {
-      const parent = useGameStore.getState().agents.get(parentAgentId);
+      const parent = useGameStore.getState().agents[parentAgentId];
       if (!parent) return;
 
       // Spawn subagent visual near parent
@@ -178,12 +180,38 @@ export function useAgentBridge() {
     [spawnAgent]
   );
 
+  // Handle file read operation
+  const handleFileRead = useCallback(
+    (agentId: string, filename: string) => {
+      const agent = useGameStore.getState().agents[agentId];
+      if (!agent) return;
+
+      addOperation(agentId, "read", filename, agent.position);
+      setThoughtBubble(agentId, `📖 Reading ${filename}...`);
+    },
+    [addOperation, setThoughtBubble]
+  );
+
+  // Handle file write operation
+  const handleFileWrite = useCallback(
+    (agentId: string, filename: string) => {
+      const agent = useGameStore.getState().agents[agentId];
+      if (!agent) return;
+
+      addOperation(agentId, "write", filename, agent.position);
+      setThoughtBubble(agentId, `✍️ Writing ${filename}...`);
+    },
+    [addOperation, setThoughtBubble]
+  );
+
   return {
     spawnDeepAgent,
     syncVisualState,
     handleToolCall,
     handleError,
     handleSubagentSpawn,
+    handleFileRead,
+    handleFileWrite,
   };
 }
 
