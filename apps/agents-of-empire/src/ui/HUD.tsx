@@ -5,6 +5,9 @@ import { useGameStore, useSelectedAgentIds, useAgentsMap, useAgentsShallow, useQ
 import { useAgentBridgeContext } from "../bridge/AgentBridge";
 import { useCombat } from "../entities/Dragon";
 import { ToolCard, ToolListItem, ToolIcon, RarityBadge, TOOL_TYPE_CONFIG, RARITY_CONFIG } from "./ToolCard";
+import { PartyPanel } from "./PartyPanel";
+import { ControlsTooltip } from "./ControlsTooltip";
+import { Tooltip, SimpleTooltip, KeyComboTooltip } from "./Tooltip";
 
 // ============================================================================
 // Minimap Component
@@ -40,7 +43,14 @@ export function Minimap({ width = 220, height = 220 }: MinimapProps) {
       style={{ width, height }}
     >
       {/* Classic RTS minimap header */}
-      <div className="absolute top-0 left-0 right-0 h-6 bg-gradient-to-b from-empire-gold/20 to-transparent pointer-events-none" />
+      <SimpleTooltip
+        title="Minimap"
+        description="Shows agent positions, structures, and dragons"
+        icon="🗺️"
+        position="left"
+      >
+        <div className="absolute top-0 left-0 right-0 h-6 bg-gradient-to-b from-empire-gold/20 to-transparent pointer-events-none cursor-help" />
+      </SimpleTooltip>
 
       <svg width={width} height={height} className="w-full h-full">
         {/* Background - classic RTS dark terrain */}
@@ -203,12 +213,18 @@ export function AgentPanel({ className = "" }: AgentPanelProps) {
         <h3 className="text-empire-gold text-lg font-bold">
           {selectedAgents.length} Unit{selectedAgents.length > 1 ? "s" : ""} Selected
         </h3>
-        <button
-          onClick={clearSelection}
-          className="text-gray-400 hover:text-white text-sm hover:bg-gray-700 px-2 py-1 rounded transition-colors"
+        <KeyComboTooltip
+          title="Deselect All Units"
+          description="Clears current selection"
+          keys={["Esc"]}
         >
-          Deselect
-        </button>
+          <button
+            onClick={clearSelection}
+            className="text-gray-400 hover:text-white text-sm hover:bg-gray-700 px-2 py-1 rounded transition-colors"
+          >
+            Deselect
+          </button>
+        </KeyComboTooltip>
       </div>
 
       <div className="space-y-3">
@@ -319,18 +335,31 @@ export function InventoryPanel({ agentId, onClose, viewMode = "list" }: Inventor
     >
       {/* Header */}
       <div className="flex justify-between items-center mb-4 pb-3 border-b border-empire-gold/30">
-        <div>
-          <h3 className="text-empire-gold text-lg font-bold">Inventory</h3>
-          <p className="text-xs text-gray-400">{agent.name}&apos;s Equipment</p>
-        </div>
+        <SimpleTooltip
+          title="Inventory"
+          description={`Manage ${agent.name}'s equipment and tools`}
+          icon="🎒"
+          position="left"
+        >
+          <div className="cursor-help">
+            <h3 className="text-empire-gold text-lg font-bold">Inventory</h3>
+            <p className="text-xs text-gray-400">{agent.name}&apos;s Equipment</p>
+          </div>
+        </SimpleTooltip>
         <div className="flex items-center gap-2">
           {onClose && (
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-white hover:bg-gray-700 w-6 h-6 rounded transition-colors"
+            <KeyComboTooltip
+              title="Close Inventory"
+              description="Close the inventory panel"
+              keys={["Esc"]}
             >
-              ✕
-            </button>
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-white hover:bg-gray-700 w-6 h-6 rounded transition-colors"
+              >
+                ✕
+              </button>
+            </KeyComboTooltip>
           )}
         </div>
       </div>
@@ -452,76 +481,227 @@ interface QuestTrackerProps {
 
 export function QuestTracker({ className = "" }: QuestTrackerProps) {
   const questsMap = useQuestsShallow();
+  const questlinesMap = useGameStore((state) => state.questlines, shallow);
   const assignQuestToAgents = useGameStore((state) => state.assignQuestToAgents);
+  const startQuestline = useGameStore((state) => state.startQuestline);
   const selectedAgentIds = useSelection();
 
-  // Convert Record to array with useMemo to prevent infinite re-renders
+  // Convert Records to arrays with useMemo to prevent infinite re-renders
   const quests = useMemo(() => Object.values(questsMap), [questsMap]);
+  const questlines = useMemo(() => Object.values(questlinesMap), [questlinesMap]);
 
   return (
     <motion.div
       initial={{ opacity: 0, x: -50, y: -20 }}
       animate={{ opacity: 1, x: 0, y: 0 }}
       transition={{ duration: 0.5, ease: "easeOut" }}
-      className={`absolute top-4 left-4 bg-gray-900/95 border-2 border-empire-gold rounded-lg p-4 text-white w-80 shadow-lg shadow-empire-gold/20 ${className}`}
+      className={`absolute top-4 left-4 bg-gray-900/95 border-2 border-empire-gold rounded-lg p-4 text-white w-96 shadow-lg shadow-empire-gold/20 max-h-[70vh] overflow-hidden flex flex-col ${className}`}
     >
       {/* Classic RTS objectives header */}
-      <div className="flex items-center gap-2 mb-3 pb-2 border-b border-empire-gold/30">
-        <span className="text-empire-gold text-xl">📜</span>
-        <h3 className="text-empire-gold text-lg font-bold">Objectives</h3>
+      <SimpleTooltip
+        title="Quest Tracker"
+        description="Track active questlines and objectives"
+        icon="📜"
+        position="right"
+      >
+        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-empire-gold/30 cursor-help">
+          <span className="text-empire-gold text-xl">📜</span>
+          <h3 className="text-empire-gold text-lg font-bold">Questlines</h3>
+        </div>
+      </SimpleTooltip>
+
+      {/* Debug controls hint */}
+      <div className="mb-3 p-2 bg-gray-800/60 rounded border border-gray-700">
+        <div className="text-xs text-gray-500 mb-1">DEBUG CONTROLS</div>
+        <div className="text-xs text-gray-400 space-y-0.5">
+          <div><kbd className="px-1 py-0.5 bg-gray-700 rounded text-gray-300">Shift+S</kbd> Start questline</div>
+          <div><kbd className="px-1 py-0.5 bg-gray-700 rounded text-gray-300">Shift+C</kbd> Complete current quest</div>
+        </div>
       </div>
 
-      {quests.length === 0 ? (
-        <p className="text-gray-400 text-sm italic">No active objectives</p>
+      {questlines.length === 0 && quests.length === 0 ? (
+        <p className="text-gray-400 text-sm italic">No active questlines</p>
       ) : (
-        <div className="space-y-2 max-h-60 overflow-y-auto">
-          {quests.map((quest) => (
-            <div
-              key={quest.id}
-              className={`p-3 rounded border transition-all ${
-                quest.status === "completed"
-                  ? "bg-green-900/30 border-green-600"
-                  : quest.status === "in_progress"
-                  ? "bg-yellow-900/30 border-yellow-600"
-                  : "bg-gray-800/80 border-gray-700"
-              }`}
-            >
-              <div className="flex justify-between items-start mb-1">
-                <span className="font-semibold text-sm">{quest.title}</span>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded font-medium ${
+        <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+          {questlines.map((questline) => {
+            const currentQuest = quests.find(q => q.id === questline.questIds[questline.currentQuestIndex]);
+            const completedCount = questline.questIds.filter(qId => {
+              const q = quests.find(quest => quest.id === qId);
+              return q?.status === "completed";
+            }).length;
+            const progress = (completedCount / questline.questIds.length) * 100;
+
+            return (
+              <div
+                key={questline.id}
+                className={`p-3 rounded border transition-all ${
+                  questline.status === "completed"
+                    ? "bg-green-900/20 border-green-600"
+                    : questline.status === "in_progress"
+                    ? "bg-yellow-900/20 border-yellow-600"
+                    : "bg-gray-800/80 border-gray-700"
+                }`}
+              >
+                {/* Questline header */}
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex-1">
+                    <div className="font-semibold text-sm text-empire-gold">{questline.name}</div>
+                    <div className="text-xs text-gray-400">{questline.description}</div>
+                  </div>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded font-medium ml-2 ${
+                      questline.status === "completed"
+                        ? "bg-green-700 text-white"
+                        : questline.status === "in_progress"
+                        ? "bg-yellow-700 text-white"
+                        : "bg-gray-600 text-gray-300"
+                    }`}
+                  >
+                    {questline.status === "completed"
+                      ? "Done"
+                      : questline.status === "in_progress"
+                      ? "Active"
+                      : "Pending"}
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                <div className="mb-2">
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-gray-400">Progress</span>
+                    <span className="text-empire-gold">{completedCount}/{questline.questIds.length}</span>
+                  </div>
+                  <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-empire-gold transition-all duration-500"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Current active quest */}
+                {currentQuest && questline.status === "in_progress" && (
+                  <div className="mt-2 p-2 bg-gray-900/60 rounded border border-gray-700">
+                    <div className="text-xs text-gray-500 mb-1">CURRENT OBJECTIVE</div>
+                    <div className="text-sm font-semibold text-gray-200 mb-1">{currentQuest.title}</div>
+                    <div className="text-xs text-gray-400 mb-2">{currentQuest.description}</div>
+
+                    {currentQuest.status === "pending" && selectedAgentIds.size > 0 && (
+                      <button
+                        onClick={() => {
+                          assignQuestToAgents(currentQuest.id, Array.from(selectedAgentIds));
+                        }}
+                        className="text-xs bg-empire-gold text-gray-900 px-3 py-1 rounded font-semibold hover:bg-yellow-500 transition-colors"
+                      >
+                        Assign ({selectedAgentIds.size})
+                      </button>
+                    )}
+
+                    {currentQuest.status === "in_progress" && (
+                      <div className="text-xs text-gray-400">
+                        {currentQuest.assignedAgentIds.length} unit(s) assigned
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Start questline button */}
+                {questline.status === "not_started" && (
+                  <button
+                    onClick={() => startQuestline(questline.id)}
+                    className="w-full text-xs bg-empire-gold text-gray-900 px-3 py-1 rounded font-semibold hover:bg-yellow-500 transition-colors mt-2"
+                  >
+                    Start Questline
+                  </button>
+                )}
+
+                {/* Quest chain visualization */}
+                {questline.questIds.length > 1 && (
+                  <div className="mt-2 flex items-center gap-1 overflow-x-auto">
+                    {questline.questIds.map((qId, index) => {
+                      const q = quests.find(quest => quest.id === qId);
+                      if (!q) return null;
+                      const isCurrent = index === questline.currentQuestIndex;
+                      const isCompleted = q.status === "completed";
+
+                      return (
+                        <React.Fragment key={qId}>
+                          <div
+                            className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold ${
+                              isCompleted
+                                ? "bg-green-600 text-white"
+                                : isCurrent
+                                ? "bg-empire-gold text-gray-900"
+                                : "bg-gray-700 text-gray-400"
+                            }`}
+                          >
+                            {index + 1}
+                          </div>
+                          {index < questline.questIds.length - 1 && (
+                            <div className={`w-4 h-0.5 flex-shrink-0 ${isCompleted ? "bg-green-600" : "bg-gray-700"}`} />
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Standalone quests (not part of questlines) */}
+          {quests.filter(q => !q.questlineId).length > 0 && (
+            <div className="pt-2 border-t border-gray-700">
+              <div className="text-xs text-gray-500 mb-2">SIDE QUESTS</div>
+              {quests.filter(q => !q.questlineId).map((quest) => (
+                <div
+                  key={quest.id}
+                  className={`p-3 rounded border transition-all mb-2 ${
                     quest.status === "completed"
-                      ? "bg-green-700 text-white"
+                      ? "bg-green-900/30 border-green-600"
                       : quest.status === "in_progress"
-                      ? "bg-yellow-700 text-white"
-                      : "bg-gray-600 text-gray-300"
+                      ? "bg-yellow-900/30 border-yellow-600"
+                      : "bg-gray-800/80 border-gray-700"
                   }`}
                 >
-                  {quest.status === "completed"
-                    ? "Done"
-                    : quest.status === "in_progress"
-                    ? "Active"
-                    : "Pending"}
-                </span>
-              </div>
-              <p className="text-xs text-gray-300 mb-2">{quest.description}</p>
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="font-semibold text-sm">{quest.title}</span>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded font-medium ${
+                        quest.status === "completed"
+                          ? "bg-green-700 text-white"
+                          : quest.status === "in_progress"
+                          ? "bg-yellow-700 text-white"
+                          : "bg-gray-600 text-gray-300"
+                      }`}
+                    >
+                      {quest.status === "completed"
+                        ? "Done"
+                        : quest.status === "in_progress"
+                        ? "Active"
+                        : "Pending"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-300 mb-2">{quest.description}</p>
 
-              {quest.status === "pending" && selectedAgentIds.size > 0 && (
-                <button
-                  onClick={() => assignQuestToAgents(quest.id, Array.from(selectedAgentIds))}
-                  className="text-xs bg-empire-gold text-gray-900 px-3 py-1 rounded font-semibold hover:bg-yellow-500 transition-colors"
-                >
-                  Assign ({selectedAgentIds.size})
-                </button>
-              )}
+                  {quest.status === "pending" && selectedAgentIds.size > 0 && (
+                    <button
+                      onClick={() => assignQuestToAgents(quest.id, Array.from(selectedAgentIds))}
+                      className="text-xs bg-empire-gold text-gray-900 px-3 py-1 rounded font-semibold hover:bg-yellow-500 transition-colors"
+                    >
+                      Assign ({selectedAgentIds.size})
+                    </button>
+                  )}
 
-              {quest.status === "in_progress" && (
-                <div className="text-xs text-gray-400">
-                  {quest.assignedAgentIds.length} unit(s) assigned
+                  {quest.status === "in_progress" && (
+                    <div className="text-xs text-gray-400">
+                      {quest.assignedAgentIds.length} unit(s) assigned
+                    </div>
+                  )}
                 </div>
-              )}
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
     </motion.div>
@@ -543,11 +723,21 @@ export function ContextMenu({ agentId, position, onClose }: ContextMenuProps) {
   const closeContextMenu = useGameStore((state) => state.closeContextMenu);
   const contextMenuOpen = useGameStore((state) => state.contextMenuOpen);
   const dragonsMap = useGameStore((state) => state.dragons, shallow);
+  const partiesMap = useGameStore((state) => state.parties, shallow);
   const [showInventory, setShowInventory] = useState(false);
   const [showCombat, setShowCombat] = useState(false);
-  const { attackDragon, autoResolveCombat } = useCombat();
+  const { attackDragon, autoResolveCombat, callForReinforcements } = useCombat();
+
+  const createParty = useGameStore((state) => state.createParty);
+  const addToParty = useGameStore((state) => state.addToParty);
+  const removeFromParty = useGameStore((state) => state.removeFromParty);
+  const selectedAgentIds = useSelectedAgentIds();
 
   if (!agent) return null;
+
+  // Get existing parties
+  const parties = useMemo(() => Object.values(partiesMap), [partiesMap]);
+  const agentParty = agent.partyId ? partiesMap[agent.partyId] : null;
 
   // Find nearby dragons with memoization
   const dragons = useMemo(() => {
@@ -568,8 +758,27 @@ export function ContextMenu({ agentId, position, onClose }: ContextMenuProps) {
     autoResolveCombat(agentId, dragonId);
   };
 
+  const handleReinforcements = (dragonId: string) => {
+    const reinforced = callForReinforcements(agentId, dragonId);
+    closeContextMenu();
+    // Show feedback about how many agents joined
+    if (reinforced.length > 0) {
+      useGameStore.getState().updateAgent(agentId, {
+        currentTask: `${reinforced.length} reinforcements!`,
+      });
+    }
+  };
+
   return (
     <>
+      {/* Backdrop - render BEFORE menu so it's behind in z-index */}
+      {contextMenuOpen && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={closeContextMenu}
+        />
+      )}
+
       <AnimatePresence>
         {showInventory && (
           <InventoryPanel agentId={agentId} onClose={() => setShowInventory(false)} />
@@ -580,7 +789,7 @@ export function ContextMenu({ agentId, position, onClose }: ContextMenuProps) {
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.9 }}
-        className="fixed bg-gray-900/95 border-2 border-empire-gold rounded-lg py-2 text-white w-56 z-50 shadow-xl shadow-empire-gold/20"
+        className="fixed bg-gray-900/95 border-2 border-empire-gold rounded-lg py-2 text-white w-56 z-50 shadow-xl shadow-empire-gold/20 pointer-events-auto"
         style={{
           left: Math.min(position.x, window.innerWidth - 230),
           top: Math.min(position.y, window.innerHeight - 300),
@@ -619,6 +828,70 @@ export function ContextMenu({ agentId, position, onClose }: ContextMenuProps) {
             <span>🏠</span> Return to Base
           </button>
 
+          {/* Party options */}
+          <div className="border-t border-gray-700 my-1" />
+          <div className="px-4 py-1 text-xs text-empire-gold font-semibold">PARTY</div>
+
+          {agentParty ? (
+            <>
+              <div className="px-4 py-1 text-xs text-gray-400">
+                Member of: <span className="text-empire-gold">{agentParty.name}</span>
+              </div>
+              <button
+                onClick={() => {
+                  removeFromParty(agentParty.id, agentId);
+                  closeContextMenu();
+                }}
+                className="w-full text-left px-4 py-2 hover:bg-gray-800 flex items-center gap-2 transition-colors text-red-400"
+              >
+                <span>🚪</span> Leave Party
+              </button>
+            </>
+          ) : (
+            <>
+              {selectedAgentIds.size > 1 ? (
+                <button
+                  onClick={() => {
+                    const members = Array.from(selectedAgentIds);
+                    createParty(`Squad ${Date.now().toString().slice(-4)}`, members, agentId);
+                    closeContextMenu();
+                  }}
+                  className="w-full text-left px-4 py-2 hover:bg-gray-800 flex items-center gap-2 transition-colors"
+                >
+                  <span>👥</span> Create Party ({selectedAgentIds.size})
+                </button>
+              ) : (
+                <div className="px-4 py-2 text-xs text-gray-500">
+                  Select multiple agents to create a party
+                </div>
+              )}
+
+              {parties.length > 0 && (
+                <>
+                  <div className="border-t border-gray-700 my-1" />
+                  <div className="px-4 py-1 text-xs text-gray-500">Join Existing:</div>
+                  {parties.slice(0, 3).map((party) => (
+                    <button
+                      key={party.id}
+                      onClick={() => {
+                        addToParty(party.id, agentId);
+                        closeContextMenu();
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-gray-800 flex items-center gap-2 transition-colors"
+                    >
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: party.color }}
+                      />
+                      <span className="text-sm">{party.name}</span>
+                      <span className="text-xs text-gray-500">({party.memberIds.length})</span>
+                    </button>
+                  ))}
+                </>
+              )}
+            </>
+          )}
+
           {dragons.length > 0 && (
             <>
               <div className="border-t border-gray-700 my-1" />
@@ -642,6 +915,13 @@ export function ContextMenu({ agentId, position, onClose }: ContextMenuProps) {
                     >
                       Auto-Battle
                     </button>
+                    <button
+                      onClick={() => handleReinforcements(dragon.id)}
+                      className="flex-1 text-xs bg-green-700 hover:bg-green-600 py-1 rounded transition-colors"
+                      title="Call nearby agents to help"
+                    >
+                      📞 Reinforce
+                    </button>
                   </div>
                 </div>
               ))}
@@ -649,14 +929,6 @@ export function ContextMenu({ agentId, position, onClose }: ContextMenuProps) {
           )}
         </div>
       </motion.div>
-
-      {/* Backdrop */}
-      {contextMenuOpen && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={closeContextMenu}
-        />
-      )}
     </>
   );
 }
@@ -722,7 +994,7 @@ export function HUD({ className = "" }: HUDProps) {
   const spawnDragon = useGameStore((state) => state.spawnDragon);
   const agents = useAgentsShallow();
 
-  // Keyboard shortcuts for testing (COMB-001: Dragon spawn test)
+  // Keyboard shortcuts for testing (COMB-001: Dragon spawn test, GOAL-006: Quest completion)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Shift+D to spawn a test dragon
@@ -747,6 +1019,33 @@ export function HUD({ className = "" }: HUDProps) {
           console.log(`[COMB-001 Test] Spawned ${randomError.type} dragon at ${randomAgent.name}'s location`);
         }
       }
+
+      // Shift+C to complete current active quest (for testing questline progression)
+      if (e.shiftKey && e.key === "C") {
+        const { quests, completeQuest } = useGameStore.getState();
+        const activeQuest = Object.values(quests).find(q => q.status === "in_progress");
+        if (activeQuest) {
+          completeQuest(activeQuest.id);
+          console.log(`[GOAL-006 Test] Completed quest: ${activeQuest.title}`);
+        } else {
+          console.log("[GOAL-006 Test] No active quest to complete. Press 'S' first to start the questline.");
+        }
+      }
+
+      // Shift+S to start the first questline (for testing)
+      if (e.shiftKey && e.key === "S") {
+        const { questlines, startQuestline } = useGameStore.getState();
+        const questlineList = Object.values(questlines);
+        if (questlineList.length > 0) {
+          const firstQuestline = questlineList[0];
+          if (firstQuestline.status === "not_started") {
+            startQuestline(firstQuestline.id);
+            console.log(`[GOAL-006 Test] Started questline: ${firstQuestline.name}`);
+          } else {
+            console.log(`[GOAL-006 Test] Questline already started or completed`);
+          }
+        }
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -767,18 +1066,27 @@ export function HUD({ className = "" }: HUDProps) {
       {/* Agent panel - Classic RTS unit info (bottom-left) */}
       <AgentPanel />
 
+      {/* Party panel - Party/squad management (bottom-right) */}
+      <div className="pointer-events-auto">
+        <PartyPanel />
+      </div>
+
       {/* Context menu (has pointer events) */}
       <AnimatePresence>
         {contextMenuOpen && contextMenuAgentId && contextMenuPosition && (
-          <div className="pointer-events-auto">
-            <ContextMenu
-              agentId={contextMenuAgentId}
-              position={contextMenuPosition}
-              onClose={closeContextMenu}
-            />
-          </div>
+          <ContextMenu
+            key="context-menu"
+            agentId={contextMenuAgentId}
+            position={contextMenuPosition}
+            onClose={closeContextMenu}
+          />
         )}
       </AnimatePresence>
+
+      {/* Controls tooltip (has pointer events) */}
+      <div className="pointer-events-auto">
+        <ControlsTooltip />
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { Group, Vector3, Color, Object3D, InstancedMesh } from "three";
 import { Text } from "@react-three/drei";
 import { useGameStore, useAgentsShallow, type AgentState, type GameAgent as GameAgentType } from "../store/gameStore";
 import { useWorldManager } from "../world/WorldManager";
+import { Object3DTooltip, AgentTooltipContent } from "../ui/Object3DTooltip";
 
 // ============================================================================
 // Agent State Visual Configurations
@@ -630,6 +631,22 @@ export function GameAgentVisual({
           </mesh>
         </group>
       )}
+
+      {/* Tooltip on hover */}
+      <Object3DTooltip
+        position={agent.position}
+        visible={isHovered}
+      >
+        <AgentTooltipContent
+          name={agent.name}
+          state={agent.state}
+          stateColor={AGENT_STATE_COLORS[agent.state]}
+          level={agent.level}
+          health={agent.health}
+          maxHealth={agent.maxHealth}
+          currentQuest={agent.currentQuest}
+        />
+      </Object3DTooltip>
     </group>
   );
 }

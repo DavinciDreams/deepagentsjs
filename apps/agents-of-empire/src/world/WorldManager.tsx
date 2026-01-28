@@ -66,6 +66,7 @@ export function WorldGrid({ width = 50, height = 50 }: WorldGridProps) {
   const tilesMap = useTilesShallow() as Record<string, { type: string; walkable: boolean; x: number; z: number }>;
   // Use a ref to store tiles for useFrame to avoid re-renders
   const tilesRef = useRef(tilesMap);
+  const lastUpdateRef = useRef(0);
 
   // Update ref when tiles change
   useEffect(() => {
@@ -83,9 +84,14 @@ export function WorldGrid({ width = 50, height = 50 }: WorldGridProps) {
   const instanceCount = width * height;
   const dummy = useMemo(() => new Object3D(), []);
 
-  // Update instances
-  useFrame(() => {
+  // Update instances with throttling to prevent long frames
+  useFrame((state) => {
     if (!meshRef.current) return;
+
+    // Throttle updates to once every 100ms to prevent performance issues
+    const now = performance.now();
+    if (now - lastUpdateRef.current < 100) return;
+    lastUpdateRef.current = now;
 
     const color = new Color();
     let index = 0;
@@ -157,7 +163,8 @@ export function findPath(
   endZ: number,
   tiles: Record<string, { walkable: boolean }>,
   width: number,
-  height: number
+  height: number,
+  structures?: Record<string, { position: [number, number, number] }>
 ): [number, number][] | null {
   // Simple A* pathfinding
   const openSet: PathNode[] = [];
@@ -227,6 +234,26 @@ export function findPath(
         continue;
       }
 
+      // Check if there's a structure at this position (structures block movement)
+      let blockedByStructure = false;
+      if (structures) {
+        for (const structureId in structures) {
+          const structure = structures[structureId];
+          const structX = Math.round(structure.position[0]);
+          const structZ = Math.round(structure.position[2]);
+          // Check if neighbor position is within 1 tile of structure (structure collision radius)
+          if (Math.abs(neighbor.x - structX) <= 1 && Math.abs(neighbor.z - structZ) <= 1) {
+            // Skip this node - blocked by structure
+            blockedByStructure = true;
+            break;
+          }
+        }
+      }
+
+      if (blockedByStructure) {
+        continue;
+      }
+
       // Check if in closed set
       if (closedSet.has(key)) {
         continue;
@@ -269,6 +296,7 @@ export function useWorldManager() {
   const tiles = useTilesShallow() as Record<string, { type: string; walkable: boolean; x: number; z: number }>;
   const worldSize = useGameStore((state) => state.worldSize);
   const setTile = useGameStore((state) => state.setTile);
+  const structures = useGameStore((state) => state.structures);
 
   return {
     tiles,
@@ -282,7 +310,7 @@ export function useWorldManager() {
       endX: number,
       endZ: number
     ): [number, number][] | null => {
-      return findPath(startX, startZ, endX, endZ, tiles, worldSize.width, worldSize.height);
+      return findPath(startX, startZ, endX, endZ, tiles, worldSize.width, worldSize.height, structures);
     },
 
     // Get tile at position
@@ -309,8 +337,8 @@ export function useWorldManager() {
 
 export function GroundPlane() {
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[25, -0.1, 25]} receiveShadow>
-      <planeGeometry args={[50, 50]} />
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[10, -0.1, 10]} receiveShadow>
+      <planeGeometry args={[20, 20]} />
       <meshStandardMaterial color="#1a1a2e" transparent opacity={0.8} />
     </mesh>
   );

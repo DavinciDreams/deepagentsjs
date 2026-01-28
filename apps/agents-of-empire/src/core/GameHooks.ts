@@ -2,6 +2,7 @@ import { useRef, useCallback, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Vector3 } from "three";
 import { useGameStore, useAgentsShallow, useDragonsShallow, useQuestsShallow, type GameAgent, type Dragon, type Quest } from "../store/gameStore";
+import { useCombat } from "../entities/Dragon";
 
 // ============================================================================
 // Game Configuration
@@ -14,7 +15,7 @@ export interface GameConfig {
 }
 
 const DEFAULT_CONFIG: GameConfig = {
-  tickRate: 60,
+  tickRate: 30, // Reduced from 60 to 30 for better performance
   autoSave: false,
   debugMode: false,
 };
@@ -33,16 +34,27 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
   // This prevents infinite re-renders inside Canvas
   const updateAgent = useGameStore((state) => state.updateAgent);
   const updateDragon = useGameStore((state) => state.updateDragon);
+  const { callForReinforcements } = useCombat();
+
+  // Track agents that have already called for reinforcements to avoid spam
+  const reinforcementCallers = useRef<Set<string>>(new Set());
 
   // Game tick - runs every frame at tick rate
   useFrame((_, delta) => {
     const now = performance.now();
-    tickAccumulator.current += delta * 1000;
 
-    // Process ticks
-    while (tickAccumulator.current >= tickInterval) {
+    // Cap delta to prevent spiraling after lag
+    const cappedDelta = Math.min(delta, 0.1);
+    tickAccumulator.current += cappedDelta * 1000;
+
+    // Process ticks with limit to prevent long-running frames
+    let ticksProcessed = 0;
+    const maxTicksPerFrame = 3; // Limit ticks per frame for stability
+
+    while (tickAccumulator.current >= tickInterval && ticksProcessed < maxTicksPerFrame) {
       tickAccumulator.current -= tickInterval;
       gameTick(now);
+      ticksProcessed++;
     }
   });
 
@@ -141,10 +153,40 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
 
       case "ERROR":
         // Stay in error state until player intervenes
+        // Clear reinforcement flag when agent is defeated
+        reinforcementCallers.current.delete(agent.id);
+        break;
+
+      case "IDLE":
+        // Clear reinforcement flag when agent leaves combat
+        reinforcementCallers.current.delete(agent.id);
         break;
 
       case "COMBAT":
-        // Combat is handled by combat system
+        // Check if agent needs reinforcements
+        if (agent.health < agent.maxHealth * 0.4 && !reinforcementCallers.current.has(agent.id)) {
+          // Agent is below 40% health - call for reinforcements!
+          reinforcementCallers.current.add(agent.id);
+
+          // Find the dragon this agent is fighting
+          const dragons = useGameStore.getState().dragons;
+          const nearbyDragon = Object.values(dragons).find((dragon) => {
+            const agentPos = new Vector3(...agent.position);
+            const dragonPos = new Vector3(...dragon.position);
+            return agentPos.distanceTo(dragonPos) < 10;
+          });
+
+          if (nearbyDragon) {
+            const reinforced = callForReinforcements(agent.id, nearbyDragon.id, 20);
+
+            // Update agent's task to show reinforcement call
+            if (reinforced.length > 0) {
+              updateAgent(agent.id, {
+                currentTask: `Called ${reinforced.length} reinforcements!`,
+              });
+            }
+          }
+        }
         break;
     }
   }, []);

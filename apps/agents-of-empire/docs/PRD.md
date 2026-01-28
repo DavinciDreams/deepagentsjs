@@ -99,14 +99,14 @@ The interface treats agent workflows as military campaigns:
 
 ### 3. Goal & Quest System
 
-| ID | Requirement | Priority | Acceptance Criteria |
-|----|-------------|----------|---------------------|
-| GOAL-001 | Goals appear as physical structures | P0 | Castles (main), towers (sub), workshops (tasks) |
-| GOAL-002 | Assign agents to goals | P0 | Drag agents to goal, or select agents + right-click goal |
-| GOAL-003 | Visual progress indicators | P0 | Progress bars, completion percentages, flags |
-| GOAL-004 | Quest log/objectives panel | P1 | Shows all active goals, assigned agents, status |
-| GOAL-005 | Goal completion celebration | P2 | Fireworks, fanfare, agents return to base |
-| GOAL-006 | Chain goals into questlines | P3 | Complete goal → unlocks next goal |
+| ID | Requirement | Priority | Acceptance Criteria | Status |
+|----|-------------|----------|---------------------|--------|
+| GOAL-001 | Goals appear as physical structures | P0 | Castles (main), towers (sub), workshops (tasks) | ✅ COMPLETE |
+| GOAL-002 | Assign agents to goals | P0 | Drag agents to goal, or select agents + right-click goal | ✅ COMPLETE |
+| GOAL-003 | Visual progress indicators | P0 | Progress bars, completion percentages, flags | ✅ COMPLETE |
+| GOAL-004 | Quest log/objectives panel | P1 | Shows all active goals, assigned agents, status | ✅ COMPLETE |
+| GOAL-005 | Goal completion celebration | P2 | Fireworks, fanfare, agents return to base | ❌ NOT IMPLEMENTED |
+| GOAL-006 | Chain goals into questlines | P3 | Complete goal → unlocks next goal | ✅ COMPLETE - REQUIRES QA |
 
 ### 4. Tool Inventory System
 

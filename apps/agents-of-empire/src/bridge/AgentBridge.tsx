@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, createContext, useContext } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { useGameStore, type AgentState, type DragonType } from "../store/gameStore";
-import { createDeepAgent, type DeepAgent } from "deepagents";
-import { tool } from "langchain";
-import { z } from "zod";
-import { ChatOpenAI } from "@langchain/openai";
+// LangChain cannot be used in browser - using mock implementation
+// import { createDeepAgent, type DeepAgent } from "deepagents";
+// import { tool } from "langchain";
+// import { ChatOpenAI } from "@langchain/openai";
 
 // ============================================================================
 // Types
@@ -15,6 +15,15 @@ export interface AgentConfig {
   model?: string;
   tools?: any[];
   systemPrompt?: string;
+}
+
+export interface MockDeepAgent {
+  id: string;
+  name: string;
+  stream: () => AsyncIterable<AgentEvent>;
+  graph?: {
+    stream: () => AsyncIterable<any>;
+  };
 }
 
 export interface AgentEvent {
@@ -77,34 +86,6 @@ export function useAgentBridge() {
   const setThoughtBubble = useGameStore((state) => state.setThoughtBubble);
   const spawnDragon = useGameStore((state) => state.spawnDragon);
 
-  // Define default tools for agents
-  const searchTool = tool(
-    async ({ query }: { query: string }) => {
-      return `Searching for "${query}"...`;
-    },
-    {
-      name: "search",
-      description: "Search for information",
-      schema: z.object({
-        query: z.string().describe("The search query"),
-      }),
-    }
-  );
-
-  const writeFileTool = tool(
-    async ({ path }: { path: string; content: string }) => {
-      return `Writing to ${path}...`;
-    },
-    {
-      name: "write_file",
-      description: "Write content to a file",
-      schema: z.object({
-        path: z.string().describe("The file path"),
-        content: z.string().describe("The file content"),
-      }),
-    }
-  );
-
   // Spawn a new Deep Agent and create visual representation
   const spawnDeepAgent = useCallback(
     async (config: AgentConfig = {}): Promise<string> => {
@@ -114,29 +95,20 @@ export function useAgentBridge() {
       // Spawn visual agent
       const gameAgent = spawnAgent(name, [25 + Math.random() * 5, 0, 25 + Math.random() * 5]);
 
-      // Create real Deep Agent instance
-      const deepAgent = createDeepAgent({
-        model: new ChatOpenAI({
-          modelName: "gpt-4o-mini",
-          temperature: 0,
-        }),
-        tools: [searchTool, writeFileTool],
-        systemPrompt: config.systemPrompt || `You are ${name}, a strategic agent in Agents of Empire game.
-Your role is to:
-1. Analyze objectives given by the player
-2. Execute tasks efficiently
-3. Report back with clear results
+      // NOTE: LangChain/OpenAI cannot run in browser due to Node.js dependencies
+      // Using mock agent for demonstration. To use real agents:
+      // 1. Create a backend API server
+      // 2. Move createDeepAgent logic to the server
+      // 3. Have frontend communicate via fetch/WebSocket
+      const mockAgentRef = {
+        id: agentId,
+        name,
+        stream: async () => createMockAgentStream(agentId),
+      };
 
-When given a task:
-- Break it down into clear steps
-- Execute each step methodically
-- Provide status updates`,
-        subagents: [],
-      });
-
-      // Store Deep Agent reference
+      // Store mock agent reference
       updateAgent(gameAgent.id, {
-        agentRef: deepAgent,
+        agentRef: mockAgentRef as any,
       });
 
       return gameAgent.id;
@@ -313,13 +285,10 @@ export function AgentBridgeProvider({ children }: AgentBridgeProviderProps) {
 
   // Register an agent for streaming
   const registerAgent = useCallback(
-    (agentId: string, _deepAgent: DeepAgent) => {
-      // Note: Deep Agents don't have a stream() method by default
-      // The invoke() method returns an async result, not a stream
-      // For now, we'll use mock events for visualization
-      // In the future, this should be updated to use real LangGraph streaming
-
-      const mockStream = createMockAgentStream(agentId);
+    async (_agentId: string, _deepAgent: MockDeepAgent) => {
+      // NOTE: Using mock stream for browser compatibility
+      // In production, this would connect to a backend API
+      const mockStream = createMockAgentStream(_agentId);
 
       const { cancel } = processAgentStream(mockStream, {
         agentId,
@@ -391,7 +360,7 @@ export function AgentBridgeProvider({ children }: AgentBridgeProviderProps) {
 // ============================================================================
 
 interface AgentBridgeContextValue {
-  registerAgent: (agentId: string, deepAgent: DeepAgent) => void;
+  registerAgent: (agentId: string, deepAgent: MockDeepAgent) => Promise<void>;
   unregisterAgent: (agentId: string) => void;
   bridge: ReturnType<typeof useAgentBridge>;
 }
