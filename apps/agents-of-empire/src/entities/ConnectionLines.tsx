@@ -1,13 +1,13 @@
 import { useRef, useMemo, useEffect } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Vector3, Color, TubeGeometry, MeshBasicMaterial, CatmullRomCurve3 } from "three";
-import { useAgentsShallow } from "../store/gameStore";
+import { useAgentsShallow, usePartiesShallow } from "../store/gameStore";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export type ConnectionType = "parent-child" | "collaborating" | "moving-together";
+export type ConnectionType = "parent-child" | "collaborating" | "moving-together" | "shared-resources";
 
 export interface AgentConnection {
   fromAgentId: string;
@@ -25,18 +25,21 @@ const CONNECTION_COLORS: Record<ConnectionType, string> = {
   "parent-child": "#00d4ff", // Cyan for subagent relationships
   "collaborating": "#2ecc71", // Green for working together
   "moving-together": "#f4d03f", // Yellow for coordinated movement
+  "shared-resources": "#ff9ff3", // Pink/purple for shared resource access
 };
 
 const CONNECTION_EMISSIVE: Record<ConnectionType, string> = {
   "parent-child": "#0088aa",
   "collaborating": "#1e8449",
   "moving-together": "#b7950b",
+  "shared-resources": "#c44569",
 };
 
 const CONNECTION_OPACITY: Record<ConnectionType, number> = {
   "parent-child": 0.8,
   "collaborating": 0.6,
   "moving-together": 0.4,
+  "shared-resources": 0.5,
 };
 
 // ============================================================================
@@ -148,6 +151,7 @@ export function ConnectionLines({
   maxConnections = 100,
 }: ConnectionLinesProps) {
   const agents = useAgentsShallow() as Record<string, any>;
+  const parties = usePartiesShallow() as Record<string, any>;
   const connectionsRef = useRef<AgentConnection[]>([]);
   const lastUpdateRef = useRef(0);
   const updateInterval = 250; // Update every 250ms (reduced from 100ms for better performance)
@@ -274,9 +278,49 @@ export function ConnectionLines({
         }
       }
 
+      // Find agents with shared resources (party members with shared tools)
+      for (const party of Object.values(parties)) {
+        if (!party.sharedResources || party.sharedResources.tools.length === 0) continue;
+
+        const partyMembers = party.memberIds.filter((id: string) => agents[id]);
+        if (partyMembers.length < 2) continue;
+
+        // Create connections between all party members who share resources
+        for (let i = 0; i < partyMembers.length; i++) {
+          for (let j = i + 1; j < partyMembers.length; j++) {
+            const agentAId = partyMembers[i];
+            const agentBId = partyMembers[j];
+            const agentA = agents[agentAId];
+            const agentB = agents[agentBId];
+
+            if (!agentA || !agentB) continue;
+
+            const key = `${agentAId}-${agentBId}`;
+            const existing = existingConnections.get(key);
+
+            // Avoid duplicates
+            const alreadyConnected = connections.some(
+              (c) =>
+                (c.fromAgentId === agentAId && c.toAgentId === agentBId) ||
+                (c.fromAgentId === agentBId && c.toAgentId === agentAId)
+            );
+
+            if (!alreadyConnected) {
+              connections.push({
+                fromAgentId: agentAId,
+                toAgentId: agentBId,
+                type: "shared-resources",
+                startTime: existing?.startTime || now,
+                intensity: 0.25, // Consistent intensity for shared resources
+              });
+            }
+          }
+        }
+      }
+
       connectionsRef.current = connections.slice(0, maxConnections);
     };
-  }, [agents, maxConnections]);
+  }, [agents, parties, maxConnections]);
 
   // Update connections on each frame
   useFrame(() => {

@@ -314,6 +314,34 @@ function PartyCard({
               </select>
             </div>
 
+            {/* Shared Resources */}
+            <div className="px-3 py-2 border-t border-gray-700">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-gray-400">Shared Resources</label>
+                <span className="text-xs text-pink-400 font-semibold">
+                  {party.sharedResources?.tools?.length || 0} tools
+                </span>
+              </div>
+              {party.sharedResources?.tools && party.sharedResources.tools.length > 0 ? (
+                <div className="grid grid-cols-4 gap-1">
+                  {party.sharedResources.tools.map((tool) => (
+                    <div
+                      key={tool.id}
+                      className="bg-pink-500/20 border border-pink-500/40 rounded p-1 text-center"
+                      title={`${tool.name} (${tool.rarity})\n${tool.description}`}
+                    >
+                      <div className="text-lg">{tool.icon}</div>
+                      <div className="text-xs text-gray-400 truncate">{tool.name}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-gray-500 italic text-center py-2">
+                  No shared resources
+                </div>
+              )}
+            </div>
+
             {/* Members list */}
             <div className="px-3 py-2 border-t border-gray-700">
               <label className="text-xs text-gray-400 block mb-2">Members</label>

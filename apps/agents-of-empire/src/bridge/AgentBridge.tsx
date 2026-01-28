@@ -84,6 +84,7 @@ export function useAgentBridge() {
   const updateAgent = useGameStore((state) => state.updateAgent);
   const setAgentState = useGameStore((state) => state.setAgentState);
   const setThoughtBubble = useGameStore((state) => state.setThoughtBubble);
+  const setSpeechBubble = useGameStore((state) => state.setSpeechBubble);
   const spawnDragon = useGameStore((state) => state.spawnDragon);
 
   // Spawn a new Deep Agent and create visual representation
@@ -199,12 +200,83 @@ export function useAgentBridge() {
     [spawnAgent]
   );
 
+  // Handle agent communication - COORD-004
+  const handleAgentCommunication = useCallback(
+    (fromAgentId: string, toAgentId: string, message: string) => {
+      // Show speech bubble on the speaking agent
+      setSpeechBubble(fromAgentId, message, toAgentId, 4000);
+
+      // If the target agent is nearby, they might respond
+      const agents = useGameStore.getState().agents;
+      const fromAgent = agents[fromAgentId];
+      const toAgent = agents[toAgentId];
+
+      if (fromAgent && toAgent) {
+        const distance = Math.sqrt(
+          Math.pow(fromAgent.position[0] - toAgent.position[0], 2) +
+          Math.pow(fromAgent.position[2] - toAgent.position[2], 2)
+        );
+
+        // If agents are close, trigger a response after a delay
+        if (distance < 10) {
+          setTimeout(() => {
+            const responses = [
+              "Got it!",
+              "On my way!",
+              "Thanks!",
+              "Understood!",
+              "Copy that!",
+            ];
+            const response = responses[Math.floor(Math.random() * responses.length)];
+            setSpeechBubble(toAgentId, response, fromAgentId, 3000);
+          }, 1000 + Math.random() * 2000);
+        }
+      }
+    },
+    [setSpeechBubble]
+  );
+
+  // Broadcast message to all party members - COORD-004
+  const broadcastToParty = useCallback(
+    (agentId: string, message: string) => {
+      const agents = useGameStore.getState().agents;
+      const agent = agents[agentId];
+      if (!agent?.partyId) return;
+
+      const parties = useGameStore.getState().parties;
+      const party = parties[agent.partyId];
+      if (!party) return;
+
+      // Show speech bubble on the speaking agent
+      setSpeechBubble(agentId, `📢 ${message}`, undefined, 4000);
+
+      // Respond after delay
+      setTimeout(() => {
+        party.memberIds.forEach((memberId) => {
+          if (memberId !== agentId) {
+            const acknowledgments = [
+              "👍",
+              "✅",
+              "On it!",
+              "Roger!",
+            ];
+            const ack = acknowledgments[Math.floor(Math.random() * acknowledgments.length)];
+            setSpeechBubble(memberId, ack, undefined, 2000);
+          }
+        });
+      }, 500 + Math.random() * 1000);
+    },
+    [setSpeechBubble]
+  );
+
   return {
     spawnDeepAgent,
     syncVisualState,
     handleToolCall,
     handleError,
     handleSubagentSpawn,
+    handleAgentCommunication,
+    broadcastToParty,
   };
 }
 

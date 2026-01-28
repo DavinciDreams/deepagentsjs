@@ -172,6 +172,7 @@ interface AgentPanelProps {
 export function AgentPanel({ className = "" }: AgentPanelProps) {
   const selectedAgentIds = useSelectedAgentIds();
   const agentsMap = useAgentsMap();
+  const partiesMap = usePartiesShallow();
   const updateAgent = useGameStore((state) => state.updateAgent);
   const clearSelection = useGameStore((state) => state.clearSelection);
 
@@ -184,6 +185,48 @@ export function AgentPanel({ className = "" }: AgentPanelProps) {
     }
     return agents;
   }, [selectedAgentIds, agentsMap]);
+
+  // Check if all selected agents belong to the same party
+  const partyInfo = useMemo(() => {
+    if (selectedAgents.length === 0) return null;
+
+    const partyIds = selectedAgents
+      .map((agent) => agent.partyId)
+      .filter((id): id is string => id !== null);
+
+    if (partyIds.length === 0) return null;
+    if (new Set(partyIds).size !== 1) return null; // Multiple parties
+
+    const partyId = partyIds[0];
+    const party = partiesMap[partyId];
+
+    if (!party) return null;
+
+    // Calculate party health
+    const members = party.memberIds
+      .map((id) => agentsMap[id])
+      .filter((agent): agent is GameAgent => agent !== undefined);
+
+    const totalHealth = members.reduce((sum, agent) => sum + agent.health, 0);
+    const totalMaxHealth = members.reduce((sum, agent) => sum + agent.maxHealth, 0);
+    const healthPercent = (totalHealth / totalMaxHealth) * 100;
+
+    // Get party state distribution
+    const stateDistribution = members.reduce((acc, agent) => {
+      acc[agent.state] = (acc[agent.state] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      party,
+      totalHealth,
+      totalMaxHealth,
+      healthPercent,
+      memberCount: members.length,
+      totalMembers: party.memberIds.length,
+      stateDistribution,
+    };
+  }, [selectedAgents, partiesMap, agentsMap]);
 
   if (selectedAgents.length === 0) {
     return (
@@ -208,24 +251,67 @@ export function AgentPanel({ className = "" }: AgentPanelProps) {
       transition={{ duration: 0.4, ease: "easeOut" }}
       className={`absolute bottom-4 left-4 bg-gray-900/95 border-2 border-empire-gold rounded-lg p-4 text-white w-80 max-h-96 overflow-y-auto shadow-lg shadow-empire-gold/20 ${className}`}
     >
-      {/* Classic RTS selection header */}
-      <div className="flex justify-between items-center mb-3 pb-2 border-b border-empire-gold/30">
-        <h3 className="text-empire-gold text-lg font-bold">
-          {selectedAgents.length} Unit{selectedAgents.length > 1 ? "s" : ""} Selected
-        </h3>
-        <KeyComboTooltip
-          title="Deselect All Units"
-          description="Clears current selection"
-          keys={["Esc"]}
-        >
-          <button
-            onClick={clearSelection}
-            className="text-gray-400 hover:text-white text-sm hover:bg-gray-700 px-2 py-1 rounded transition-colors"
-          >
-            Deselect
-          </button>
-        </KeyComboTooltip>
-      </div>
+      {/* Party Status Sync - COORD-005 */}
+      {partyInfo && (
+        <div className="mb-3 p-3 bg-gradient-to-r from-empire-gold/20 to-empire-gold/10 border border-empire-gold/50 rounded-lg">
+          <div className="flex items-center gap-2 mb-2">
+            <div
+              className="w-3 h-3 rounded-full"
+              style={{ backgroundColor: partyInfo.party.color }}
+            />
+            <span className="text-empire-gold font-bold">{partyInfo.party.name}</span>
+            <span className="text-xs text-gray-400 ml-auto">
+              {partyInfo.memberCount}/{partyInfo.totalMembers} selected
+            </span>
+          </div>
+
+          {/* Party health bar - COORD-005 */}
+          <div className="mb-2">
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-gray-300">Party Health</span>
+              <span
+                className={
+                  partyInfo.healthPercent > 50
+                    ? "text-green-400"
+                    : partyInfo.healthPercent > 30
+                    ? "text-yellow-400"
+                    : "text-red-400"
+                }
+              >
+                {Math.round(partyInfo.totalHealth)}/{Math.round(partyInfo.totalMaxHealth)}
+              </span>
+            </div>
+            <div className="h-2 bg-gray-700 rounded-full overflow-hidden border border-gray-600">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${partyInfo.healthPercent}%` }}
+                transition={{ duration: 0.5 }}
+                className="h-full"
+                style={{
+                  backgroundColor:
+                    partyInfo.healthPercent > 50
+                      ? "#27ae60"
+                      : partyInfo.healthPercent > 30
+                      ? "#f39c12"
+                      : "#e74c3c",
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Party state distribution - COORD-005 */}
+          <div className="flex flex-wrap gap-1">
+            {Object.entries(partyInfo.stateDistribution).map(([state, count]) => (
+              <span
+                key={state}
+                className="text-xs px-2 py-0.5 rounded bg-gray-700 border border-gray-600 text-gray-300"
+              >
+                {state}: {count}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-3">
         {selectedAgents.map((agent) => (
@@ -731,6 +817,7 @@ export function ContextMenu({ agentId, position, onClose }: ContextMenuProps) {
   const createParty = useGameStore((state) => state.createParty);
   const addToParty = useGameStore((state) => state.addToParty);
   const removeFromParty = useGameStore((state) => state.removeFromParty);
+  const addToolToPartyShared = useGameStore((state) => state.addToolToPartyShared);
   const selectedAgentIds = useSelectedAgentIds();
 
   if (!agent) return null;
@@ -837,6 +924,18 @@ export function ContextMenu({ agentId, position, onClose }: ContextMenuProps) {
               <div className="px-4 py-1 text-xs text-gray-400">
                 Member of: <span className="text-empire-gold">{agentParty.name}</span>
               </div>
+              {agent.equippedTool && (
+                <button
+                  onClick={() => {
+                    addToolToPartyShared(agentParty.id, agent.equippedTool);
+                    closeContextMenu();
+                  }}
+                  className="w-full text-left px-4 py-2 hover:bg-gray-800 flex items-center gap-2 transition-colors text-pink-400"
+                  title={`Share ${agent.equippedTool.name} to party pool`}
+                >
+                  <span>💝</span> Share {agent.equippedTool.name}
+                </button>
+              )}
               <button
                 onClick={() => {
                   removeFromParty(agentParty.id, agentId);

@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo, memo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { useThree } from "@react-three/fiber";
+import { useThree, useFrame } from "@react-three/fiber";
+import * as THREE from "three";
 
 // ============================================================================
 // 3D Object Tooltip Component
@@ -12,42 +13,81 @@ interface Object3DTooltipProps {
   position: [number, number, number];
   visible: boolean;
   className?: string;
+  minDistance?: number; // LOD: Minimum camera distance to show tooltip
 }
 
-export function Object3DTooltip({
+const Object3DTooltipComponent = ({
   content,
   position,
   visible,
   className = "",
-}: Object3DTooltipProps) {
+  minDistance = 50,
+}: Object3DTooltipProps) => {
   const { camera, size } = useThree();
   const [screenPosition, setScreenPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const lastUpdateRef = useRef(0);
+  const showDelayRef = useRef<NodeJS.Timeout | null>(null);
+
+  // LOD: Check if tooltip should be visible based on camera distance
+  const shouldShow = useMemo(() => {
+    if (!visible) return false;
+    
+    const objectPos = new THREE.Vector3(...position);
+    const cameraPos = camera.position;
+    const distance = objectPos.distanceTo(cameraPos);
+    
+    return distance < minDistance;
+  }, [visible, position, camera.position, minDistance]);
 
   useEffect(() => {
-    if (!visible) {
+    if (!shouldShow) {
+      setIsVisible(false);
       setScreenPosition(null);
+      if (showDelayRef.current) {
+        clearTimeout(showDelayRef.current);
+        showDelayRef.current = null;
+      }
       return;
     }
 
-    // Project 3D position to 2D screen coordinates
-    const vector = {
-      x: position[0],
-      y: position[1],
-      z: position[2],
+    // Small delay to prevent flickering during rapid hover
+    showDelayRef.current = setTimeout(() => {
+      setIsVisible(true);
+    }, 100);
+
+    return () => {
+      if (showDelayRef.current) {
+        clearTimeout(showDelayRef.current);
+      }
     };
+  }, [shouldShow]);
+
+  // Throttled position updates using requestAnimationFrame
+  useFrame(() => {
+    if (!isVisible) return;
+
+    const now = performance.now();
+    // Throttle to ~30fps for position updates (33ms)
+    if (now - lastUpdateRef.current < 33) return;
+    lastUpdateRef.current = now;
+
+    // Project 3D position to 2D screen coordinates using Three.js projection
+    const vector = new THREE.Vector3(...position);
+    vector.project(camera);
 
     // Convert to screen space
-    const vectorX = vector.x * size.width / 2 + size.width / 2;
-    const vectorY = -(vector.y * size.height / 2) + size.height / 2;
+    const vectorX = (vector.x * 0.5 + 0.5) * size.width;
+    const vectorY = (-(vector.y * 0.5) + 0.5) * size.height;
 
     setScreenPosition({ x: vectorX, y: vectorY });
-  }, [visible, position, size.width, size.height]);
+  });
 
-  if (!screenPosition || !visible) return null;
+  if (!screenPosition || !isVisible) return null;
 
   return createPortal(
     <AnimatePresence>
-      {visible && (
+      {isVisible && (
         <motion.div
           initial={{ opacity: 0, y: 10, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -68,7 +108,10 @@ export function Object3DTooltip({
     </AnimatePresence>,
     document.body
   );
-}
+};
+
+// Memoize the component to prevent unnecessary re-renders
+export const Object3DTooltip = memo(Object3DTooltipComponent);
 
 // ============================================================================
 // Helper Component for Agent Tooltips
@@ -82,9 +125,11 @@ interface AgentTooltipContentProps {
   health?: number;
   maxHealth?: number;
   currentQuest?: string;
+  partyName?: string; // COORD-005: Party info
+  partyColor?: string; // COORD-005: Party color
 }
 
-export function AgentTooltipContent({
+const AgentTooltipContentComponent = ({
   name,
   state,
   stateColor,
@@ -92,7 +137,9 @@ export function AgentTooltipContent({
   health,
   maxHealth,
   currentQuest,
-}: AgentTooltipContentProps) {
+  partyName,
+  partyColor,
+}: AgentTooltipContentProps) => {
   return (
     <div className="space-y-2">
       {/* Header */}
@@ -102,6 +149,17 @@ export function AgentTooltipContent({
           <span className="text-xs text-gray-400">Lv. {level}</span>
         )}
       </div>
+
+      {/* Party info - COORD-005 */}
+      {partyName && partyColor && (
+        <div className="flex items-center gap-2">
+          <div
+            className="w-2 h-2 rounded-full"
+            style={{ backgroundColor: partyColor }}
+          />
+          <span className="text-xs text-gray-300">{partyName}</span>
+        </div>
+      )}
 
       {/* State */}
       <div className="flex items-center gap-2">
@@ -149,7 +207,9 @@ export function AgentTooltipContent({
       )}
     </div>
   );
-}
+};
+
+export const AgentTooltipContent = memo(AgentTooltipContentComponent);
 
 // ============================================================================
 // Helper Component for Structure Tooltips
@@ -162,12 +222,12 @@ interface StructureTooltipContentProps {
   assignedAgents?: number;
 }
 
-export function StructureTooltipContent({
+const StructureTooltipContentComponent = ({
   name,
   type,
   description,
   assignedAgents,
-}: StructureTooltipContentProps) {
+}: StructureTooltipContentProps) => {
   return (
     <div className="space-y-2">
       <div className="font-bold text-empire-gold text-sm">{name}</div>
@@ -181,7 +241,9 @@ export function StructureTooltipContent({
       )}
     </div>
   );
-}
+};
+
+export const StructureTooltipContent = memo(StructureTooltipContentComponent);
 
 // ============================================================================
 // Helper Component for Dragon Tooltips
@@ -195,13 +257,13 @@ interface DragonTooltipContentProps {
   errorType?: string;
 }
 
-export function DragonTooltipContent({
+const DragonTooltipContentComponent = ({
   name,
   type,
   health,
   maxHealth,
   errorType,
-}: DragonTooltipContentProps) {
+}: DragonTooltipContentProps) => {
   const healthPercentage = (health / maxHealth) * 100;
 
   return (
@@ -227,4 +289,6 @@ export function DragonTooltipContent({
       </div>
     </div>
   );
-}
+};
+
+export const DragonTooltipContent = memo(DragonTooltipContentComponent);

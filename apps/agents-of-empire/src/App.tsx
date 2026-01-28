@@ -220,7 +220,7 @@ function ContextLossHandler() {
     const handleContextLoss = (event: Event) => {
       event.preventDefault();
       contextLostRef.current = true;
-      console.error("[WebGL] Context lost - attempting recovery...");
+      // console.error("[WebGL] Context lost - attempting recovery...");
 
       // Force stop the render loop to prevent further crashes
       try {
@@ -308,7 +308,28 @@ function GameScene() {
     (position: [number, number, number]) => {
       const selectedAgents = Array.from(useGameStore.getState().selectedAgentIds);
       if (selectedAgents.length === 0) return;
-      moveAgentsToPosition(position, selectedAgents);
+
+      // Check if selected agents belong to a party
+      const parties = useGameStore.getState().parties;
+      let movedParty = false;
+
+      // Find parties that contain selected agents
+      for (const [partyId, party] of Object.entries(parties)) {
+        // Check if all selected agents are members of this party
+        const allMembersInParty = selectedAgents.every(id => party.memberIds.includes(id));
+
+        if (allMembersInParty && party.memberIds.length > 0) {
+          // Use party movement with formation
+          useGameStore.getState().moveParty(partyId, position);
+          movedParty = true;
+          break; // Only move one party at a time
+        }
+      }
+
+      // If no party was found, use regular movement
+      if (!movedParty) {
+        moveAgentsToPosition(position, selectedAgents);
+      }
     },
     [moveAgentsToPosition]
   );

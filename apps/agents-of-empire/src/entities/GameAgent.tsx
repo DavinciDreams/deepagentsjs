@@ -2,7 +2,7 @@ import { useRef, useEffect, useMemo, useState, useCallback } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Group, Vector3, Color, Object3D, InstancedMesh } from "three";
 import { Text } from "@react-three/drei";
-import { useGameStore, useAgentsShallow, type AgentState, type GameAgent as GameAgentType } from "../store/gameStore";
+import { useGameStore, useAgentsShallow, usePartiesShallow, type AgentState, type GameAgent as GameAgentType } from "../store/gameStore";
 import { useWorldManager } from "../world/WorldManager";
 import { Object3DTooltip, AgentTooltipContent } from "../ui/Object3DTooltip";
 
@@ -375,6 +375,12 @@ function StateGlow({ state, position }: StateGlowProps) {
 // Individual Agent Component (for selected/hovered agents only)
 // ============================================================================
 
+// Helper function to get agent name by ID
+function getAgentName(agentId: string): string {
+  const agents = useGameStore.getState().agents;
+  return agents[agentId]?.name || "Unknown Agent";
+}
+
 interface GameAgentVisualProps {
   agent: GameAgentType;
   isSelected: boolean;
@@ -382,6 +388,9 @@ interface GameAgentVisualProps {
   onPointerOver: () => void;
   onPointerOut: () => void;
   onClick: () => void;
+  partyName?: string; // COORD-005: Party name for tooltip
+  partyColor?: string; // COORD-005: Party color for tooltip
+  hasSharedResources?: boolean; // COORD-002: Has party shared resources
 }
 
 export function GameAgentVisual({
@@ -391,6 +400,9 @@ export function GameAgentVisual({
   onPointerOver,
   onPointerOut,
   onClick,
+  partyName, // COORD-005
+  partyColor, // COORD-005
+  hasSharedResources, // COORD-002
 }: GameAgentVisualProps) {
   const groupRef = useRef<Group>(null);
   const bodyRef = useRef<Group>(null);
@@ -512,6 +524,22 @@ export function GameAgentVisual({
         </mesh>
       )}
 
+      {/* Party indicator - COORD-005 */}
+      {partyColor && (
+        <group position={[0, 1.8, 0]}>
+          {/* Party banner/flag */}
+          <mesh position={[0, 0, 0]}>
+            <boxGeometry args={[0.3, 0.4, 0.05]} />
+            <meshStandardMaterial color={partyColor} emissive={partyColor} emissiveIntensity={0.3} />
+          </mesh>
+          {/* Party icon (circle) */}
+          <mesh position={[0, 0, 0.03]}>
+            <circleGeometry args={[0.12, 16]} />
+            <meshBasicMaterial color="#ffffff" />
+          </mesh>
+        </group>
+      )}
+
       {/* Agent body group */}
       <group ref={bodyRef}>
         {/* Body */}
@@ -583,6 +611,14 @@ export function GameAgentVisual({
         </mesh>
       )}
 
+      {/* Shared resources indicator - COORD-002 */}
+      {hasSharedResources && (
+        <mesh position={[-0.7, 0.8, 0]}>
+          <sphereGeometry args={[0.12, 8, 8]} />
+          <meshBasicMaterial color="#ff9ff3" />
+        </mesh>
+      )}
+
       {/* State icon (floating above) - show for all states now with enhanced visibility */}
       <Text
         position={[0, 2.2, 0]}
@@ -595,6 +631,42 @@ export function GameAgentVisual({
       >
         {agent.thoughtBubble || AGENT_STATE_ICONS[agent.state]}
       </Text>
+
+      {/* Speech bubble for agent communication - COORD-004 */}
+      {agent.speechBubble && (
+        <group position={[0, 3.5, 0]}>
+          {/* Speech bubble background */}
+          <mesh position={[0, 0, 0]}>
+            <planeGeometry args={[3, 0.8]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.95} />
+          </mesh>
+          {/* Speech bubble border */}
+          <mesh position={[0, 0, -0.01]}>
+            <planeGeometry args={[3.1, 0.9]} />
+            <meshBasicMaterial color="#00d4ff" transparent opacity={0.3} />
+          </mesh>
+          {/* Speech bubble text */}
+          <Text
+            position={[0, 0, 0.01]}
+            fontSize={0.25}
+            color="#0066cc"
+            anchorX="center"
+            anchorY="middle"
+            maxWidth={2.8}
+            outlineWidth={0.01}
+            outlineColor="#ffffff"
+          >
+            {agent.speechBubble.targetAgentId
+              ? `→ ${getAgentName(agent.speechBubble.targetAgentId)}: ${agent.speechBubble.message}`
+              : agent.speechBubble.message}
+          </Text>
+          {/* Speech bubble tail pointer */}
+          <mesh position={[0, -0.5, 0]} rotation={[0, 0, Math.PI]}>
+            <coneGeometry args={[0.2, 0.3, 4]} />
+            <meshBasicMaterial color="#00d4ff" transparent opacity={0.3} />
+          </mesh>
+        </group>
+      )}
 
       {/* Agent name */}
       <Text
@@ -645,6 +717,8 @@ export function GameAgentVisual({
           health={agent.health}
           maxHealth={agent.maxHealth}
           currentQuest={agent.currentQuest}
+          partyName={partyName} // COORD-005
+          partyColor={partyColor} // COORD-005
         />
       </Object3DTooltip>
     </group>
@@ -792,6 +866,7 @@ interface LODAgentRendererProps {
   hoverAgentId: string | null;
   onAgentClick: (agentId: string) => void;
   onAgentHover: (agentId: string | null) => void;
+  partiesMap?: Record<string, any>; // COORD-005: Parties data for tooltips
 }
 
 export function LODAgentRenderer({
@@ -800,6 +875,7 @@ export function LODAgentRenderer({
   hoverAgentId,
   onAgentClick,
   onAgentHover,
+  partiesMap = {}, // COORD-005
 }: LODAgentRendererProps) {
   // Agents that need detailed rendering (selected, hovered, or nearby)
   const [nearbyAgents, setNearbyAgents] = useState<GameAgentType[]>([]);
@@ -852,17 +928,29 @@ export function LODAgentRenderer({
       />
 
       {/* Detailed rendering for nearby/selected agents */}
-      {nearbyAgents.map((agent) => (
-        <GameAgentVisual
-          key={agent.id}
-          agent={agent}
-          isSelected={selectedAgentIds.has(agent.id)}
-          isHovered={hoverAgentId === agent.id}
-          onPointerOver={() => onAgentHover(agent.id)}
-          onPointerOut={() => onAgentHover(null)}
-          onClick={() => onAgentClick(agent.id)}
-        />
-      ))}
+      {nearbyAgents.map((agent) => {
+        // COORD-005: Get party info for tooltip
+        const party = agent.partyId && partiesMap[agent.partyId];
+        const partyName = party?.name;
+        const partyColor = party?.color;
+        // COORD-002: Check if party has shared resources
+        const hasSharedResources = party?.sharedResources?.tools && party.sharedResources.tools.length > 0;
+
+        return (
+          <GameAgentVisual
+            key={agent.id}
+            agent={agent}
+            isSelected={selectedAgentIds.has(agent.id)}
+            isHovered={hoverAgentId === agent.id}
+            onPointerOver={() => onAgentHover(agent.id)}
+            onPointerOut={() => onAgentHover(null)}
+            onClick={() => onAgentClick(agent.id)}
+            partyName={partyName} // COORD-005
+            partyColor={partyColor} // COORD-005
+            hasSharedResources={hasSharedResources} // COORD-002
+          />
+        );
+      })}
     </>
   );
 }
@@ -880,6 +968,7 @@ export function AgentPool({ onAgentClick }: AgentPoolProps) {
   const selectedAgentIds = useGameStore((state) => state.selectedAgentIds);
   const hoverAgentId = useGameStore((state) => state.hoverAgentId);
   const setHoverAgent = useGameStore((state) => state.setHoverAgent);
+  const partiesMap = usePartiesShallow(); // COORD-005
 
   // Convert agents object to array for rendering
   const agentsArray = useMemo(() => Object.values(agents), [agents]);
@@ -909,6 +998,7 @@ export function AgentPool({ onAgentClick }: AgentPoolProps) {
       hoverAgentId={hoverAgentId}
       onAgentClick={handleAgentClick}
       onAgentHover={handleAgentHover}
+      partiesMap={partiesMap} // COORD-005
     />
   );
 }

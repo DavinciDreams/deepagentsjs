@@ -190,10 +190,11 @@ export function StructureVisual({
         </group>
       )}
 
-      {/* Tooltip on hover - DISABLED FOR PERFORMANCE */}
-      {/* <Object3DTooltip
+      {/* Tooltip on hover - ENABLED with LOD optimization */}
+      <Object3DTooltip
         position={structure.position}
         visible={isHovered}
+        minDistance={60} // Only show when camera is within 60 units
       >
         <StructureTooltipContent
           name={structure.name}
@@ -201,7 +202,7 @@ export function StructureVisual({
           description={structure.description}
           assignedAgents={assignedAgentCount}
         />
-      </Object3DTooltip> */}
+      </Object3DTooltip>
     </group>
   );
 }

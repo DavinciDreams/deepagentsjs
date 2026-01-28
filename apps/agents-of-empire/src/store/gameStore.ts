@@ -38,6 +38,11 @@ export interface GameAgent {
   parentId: string | null; // For subagents
   childrenIds: string[]; // For tracking spawned subagents
   thoughtBubble: string | null;
+  speechBubble: {
+    message: string;
+    targetAgentId?: string; // If present, shows "→ AgentName: message"
+    timestamp: number;
+  } | null;
   lastToolCall: string | null;
   lastMove?: number;
   thinkStart?: number | null;
@@ -116,6 +121,10 @@ export interface Party {
   leaderId: string | null;
   createdAt: number;
   color: string; // For UI identification
+  sharedResources: {
+    tools: Tool[]; // Tools accessible to all party members
+    lastUpdated: number; // Timestamp of last resource change
+  };
 }
 
 // ============================================================================
@@ -207,6 +216,12 @@ interface GameActions {
   unequipTool: (agentId: string) => void;
   addToolToInventory: (agentId: string, tool: Tool) => void;
   setThoughtBubble: (agentId: string, thought: string | null) => void;
+  setSpeechBubble: (
+    agentId: string,
+    message: string,
+    targetAgentId?: string,
+    duration?: number
+  ) => void;
 
   // Selection
   selectAgent: (id: string) => void;
@@ -229,6 +244,8 @@ interface GameActions {
   setPartyFormation: (partyId: string, formation: FormationType) => void;
   setPartyLeader: (partyId: string, leaderId: string) => void;
   moveParty: (partyId: string, targetPosition: [number, number, number]) => void;
+  addToolToPartyShared: (partyId: string, tool: Tool) => void;
+  removeToolFromPartyShared: (partyId: string, toolId: string) => void;
 
   // Dragons
   spawnDragon: (
@@ -372,6 +389,7 @@ export const useGameStore = create<GameStore>()(
       parentId: parentId || null,
       childrenIds: [],
       thoughtBubble: null,
+      speechBubble: null,
       lastToolCall: null,
       partyId: null,
     };
@@ -496,6 +514,21 @@ export const useGameStore = create<GameStore>()(
     get().updateAgent(agentId, { thoughtBubble: thought });
   },
 
+  setSpeechBubble: (agentId, message, targetAgentId, duration = 3000) => {
+    const timestamp = Date.now();
+    get().updateAgent(agentId, {
+      speechBubble: { message, targetAgentId, timestamp }
+    });
+
+    // Auto-clear speech bubble after duration
+    setTimeout(() => {
+      const agent = get().agents[agentId];
+      if (agent?.speechBubble?.timestamp === timestamp) {
+        get().updateAgent(agentId, { speechBubble: null });
+      }
+    }, duration);
+  },
+
   // Selection Actions
   selectAgent: (id) => {
     set((state) => {
@@ -557,6 +590,10 @@ export const useGameStore = create<GameStore>()(
       leaderId: leaderId || memberIds[0] || null,
       createdAt: Date.now(),
       color,
+      sharedResources: {
+        tools: [],
+        lastUpdated: Date.now(),
+      },
     };
 
     set((state) => {
@@ -569,6 +606,19 @@ export const useGameStore = create<GameStore>()(
           state.agents[agentId].partyId = id;
         }
       });
+    });
+
+    // Trigger speech bubbles for party formation - COORD-004
+    const greetings = ["Let's do this!", "Team up!", "Ready!", "Together!"];
+    memberIds.forEach((agentId, index) => {
+      setTimeout(() => {
+        get().setSpeechBubble(
+          agentId,
+          greetings[index % greetings.length],
+          undefined,
+          3000
+        );
+      }, index * 300);
     });
 
     return party;
@@ -715,6 +765,50 @@ export const useGameStore = create<GameStore>()(
       ];
 
       get().setAgentTarget(memberId, memberTarget);
+    });
+  },
+
+  // Shared Resource Actions
+  addToolToPartyShared: (partyId, tool) => {
+    set((state) => {
+      const party = state.parties[partyId];
+      if (party) {
+        party.sharedResources.tools.push(tool);
+        party.sharedResources.lastUpdated = Date.now();
+      }
+    });
+
+    // Trigger speech bubbles when tool is shared - COORD-004
+    const party = get().parties[partyId];
+    if (party && party.memberIds.length > 0) {
+      const sharerId = party.memberIds[0]; // First member shares
+      const thanks = ["Thanks!", "Awesome!", "Got it!", "Sweet!"];
+      party.memberIds.forEach((agentId, index) => {
+        if (index === 0) {
+          // Sharer announces
+          get().setSpeechBubble(sharerId, `Sharing ${tool.name}!`, undefined, 2000);
+        } else {
+          // Others respond with delay
+          setTimeout(() => {
+            get().setSpeechBubble(
+              agentId,
+              thanks[index % thanks.length],
+              undefined,
+              2000
+            );
+          }, 500 + index * 200);
+        }
+      });
+    }
+  },
+
+  removeToolFromPartyShared: (partyId, toolId) => {
+    set((state) => {
+      const party = state.parties[partyId];
+      if (party) {
+        party.sharedResources.tools = party.sharedResources.tools.filter((t) => t.id !== toolId);
+        party.sharedResources.lastUpdated = Date.now();
+      }
     });
   },
 
