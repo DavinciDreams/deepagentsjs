@@ -21,6 +21,16 @@ const DEFAULT_CONFIG: GameConfig = {
 };
 
 // ============================================================================
+// State Duration Constants (in milliseconds)
+// ============================================================================
+
+const STATE_DURATIONS = {
+  THINKING: 2000,  // 2 seconds
+  WORKING: 3000,  // 3 seconds
+  COMPLETING: 1500, // 1.5 seconds
+} as const;
+
+// ============================================================================
 // Game Hook
 // ============================================================================()
 
@@ -36,46 +46,9 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
   // This prevents infinite re-renders inside Canvas
   const updateAgent = useGameStore((state) => state.updateAgent);
   const updateDragon = useGameStore((state) => state.updateDragon);
-  const setAgentPath = useGameStore((state) => state.setAgentPath);
-
-  // Game tick - runs every frame at tick rate
-  useFrame((_, delta) => {
-    const now = performance.now();
-    tickAccumulator.current += delta * 1000;
-
-    // Process ticks
-    while (tickAccumulator.current >= tickInterval) {
-      tickAccumulator.current -= tickInterval;
-      gameTick(now);
-    }
-  });
-
-  // Single game tick
-  const gameTick = useCallback((now: number) => {
-    // Use getState() to get current values without subscribing
-    const agents = useGameStore.getState().agents;
-    const dragons = useGameStore.getState().dragons;
-
-    // Update agent positions
-    for (const id in agents) {
-      const agent = agents[id];
-      if (agent.targetPosition) {
-        moveAgentTowardsTarget(agent, now);
-      }
-
-      // Update agent state timers
-      updateAgentState(agent, now);
-    }
-
-    // Update dragon AI
-    for (const id in dragons) {
-      const dragon = dragons[id];
-      updateDragonAI(dragon, now);
-    }
-  }, []);
 
   // Move agent towards target using pathfinding
-  const moveAgentTowardsTarget = useCallback((agent: GameAgent, now: number) => {
+  const moveAgentTowardsTarget = useCallback((agent: GameAgent, now: number, delta: number) => {
     const speed = 5; // units per second
     const current = new Vector3(...agent.position);
     const target = new Vector3(...agent.targetPosition);
@@ -109,7 +82,8 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
           return;
         }
 
-        const moveDist = speed * 0.016; // Approximate delta time
+        // Use actual delta time instead of hard-coded 0.016
+        const moveDist = speed * delta;
         direction.normalize().multiplyScalar(Math.min(moveDist, distance));
 
         const newPos = current.add(direction);
@@ -143,7 +117,8 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
         }
       } else {
         // Move towards next waypoint
-        const moveDist = speed * 0.016; // Approximate delta time
+        // Use actual delta time instead of hard-coded 0.016
+        const moveDist = speed * delta;
         direction.normalize().multiplyScalar(Math.min(moveDist, distance));
 
         const newPos = current.add(direction);
@@ -160,7 +135,7 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
         // Simulate thinking duration
         if (!agent.thinkStart) {
           useGameStore.getState().updateAgent(agent.id, { thinkStart: now });
-        } else if (now - agent.thinkStart > 2000) {
+        } else if (now - agent.thinkStart > STATE_DURATIONS.THINKING) {
           // Done thinking
           useGameStore.getState().updateAgent(agent.id, {
             state: "IDLE",
@@ -173,7 +148,7 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
         // Simulate work duration
         if (!agent.workStart) {
           useGameStore.getState().updateAgent(agent.id, { workStart: now });
-        } else if (now - agent.workStart > 3000) {
+        } else if (now - agent.workStart > STATE_DURATIONS.WORKING) {
           // Done working
           useGameStore.getState().updateAgent(agent.id, {
             state: "COMPLETING",
@@ -186,7 +161,7 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
         // Show completion for a moment then go idle
         if (!agent.completeStart) {
           useGameStore.getState().updateAgent(agent.id, { completeStart: now });
-        } else if (now - agent.completeStart > 1500) {
+        } else if (now - agent.completeStart > STATE_DURATIONS.COMPLETING) {
           useGameStore.getState().updateAgent(agent.id, {
             state: "IDLE",
             completeStart: null,
@@ -199,6 +174,9 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
         // Stay in error state until player intervenes
         break;
 
+      case "IDLE":
+        break;
+
       case "COMBAT":
         // Combat is handled by combat system
         break;
@@ -206,7 +184,7 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
   }, []);
 
   // Update dragon AI
-  const updateDragonAI = useCallback((dragon: Dragon, _now: number) => {
+  const updateDragonAI = useCallback((dragon: Dragon, _now: number, delta: number) => {
     // Simple AI: move toward target agent if exists
     if (dragon.targetAgentId) {
       const agent = useGameStore.getState().agents[dragon.targetAgentId];
@@ -216,8 +194,8 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
         const direction = agentPos.sub(dragonPos).normalize();
         const speed = 1; // Dragons move slower
 
-        // Move dragon closer
-        const newPos = dragonPos.add(direction.multiplyScalar(speed * 0.016));
+        // Move dragon closer using actual delta time instead of hard-coded 0.016
+        const newPos = dragonPos.add(direction.multiplyScalar(speed * delta));
         useGameStore.getState().updateDragon(dragon.id, {
           position: [newPos.x, newPos.y, newPos.z],
         });
@@ -233,6 +211,42 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
       }
     }
   }, []);
+
+  // Game tick - runs every frame at tick rate
+  useFrame((_, delta) => {
+    const now = performance.now();
+    tickAccumulator.current += delta * 1000;
+
+    // Process ticks
+    while (tickAccumulator.current >= tickInterval) {
+      tickAccumulator.current -= tickInterval;
+      gameTick(now, delta);
+    }
+  });
+
+  // Single game tick
+  const gameTick = useCallback((now: number, delta: number) => {
+    // Use getState() to get current values without subscribing
+    const agents = useGameStore.getState().agents;
+    const dragons = useGameStore.getState().dragons;
+
+    // Update agent positions
+    for (const id in agents) {
+      const agent = agents[id];
+      if (agent.targetPosition) {
+        moveAgentTowardsTarget(agent, now, delta);
+      }
+
+      // Update agent state timers
+      updateAgentState(agent, now);
+    }
+
+    // Update dragon AI
+    for (const id in dragons) {
+      const dragon = dragons[id];
+      updateDragonAI(dragon, now, delta);
+    }
+  }, [moveAgentTowardsTarget, updateDragonAI, updateAgentState]);
 
   return {
     lastTick,
