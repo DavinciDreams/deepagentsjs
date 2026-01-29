@@ -212,6 +212,7 @@ interface GameActions {
   setAgentState: (id: string, state: AgentState) => void;
   setAgentPosition: (id: string, position: [number, number, number]) => void;
   setAgentTarget: (id: string, target: [number, number, number]) => void;
+  setAgentPath: (id: string, path: [number, number][]) => void;
   equipTool: (agentId: string, tool: Tool) => void;
   unequipTool: (agentId: string) => void;
   addToolToInventory: (agentId: string, tool: Tool) => void;
@@ -392,6 +393,8 @@ export const useGameStore = create<GameStore>()(
       speechBubble: null,
       lastToolCall: null,
       partyId: null,
+      currentPath: null,
+      pathIndex: 0,
     };
 
     set((state) => {
