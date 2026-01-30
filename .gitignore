@@ -72,3 +72,11 @@ final_*.py
 current_*.png
 final_*.png
 game_*.png
+# Screenshots directory
+screenshots/
+
+# Lisa documentation
+docs/lisa/
+
+# Docs directory
+docs/
