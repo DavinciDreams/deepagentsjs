@@ -105,9 +105,9 @@ export function StructureVisual({
       onPointerOut={onPointerOut}
       onClick={onClick}
     >
-      {/* Invisible hit sphere for easier clicking */}
+      {/* Invisible hit sphere for click detection */}
       <mesh visible={false}>
-        <sphereGeometry args={[radius, 16, 16]} />
+        <sphereGeometry args={[radius, 8, 8]} />
         <meshBasicMaterial />
       </mesh>
 
