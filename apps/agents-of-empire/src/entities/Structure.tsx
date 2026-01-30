@@ -4,7 +4,6 @@ import { Group, Color } from "three";
 import { Text } from "@react-three/drei";
 import { useGameStore, useStructuresShallow, type Structure as StructureType } from "../store/gameStore";
 import { shallow } from "zustand/shallow";
-import { Object3DTooltip, StructureTooltipContent } from "../ui/Object3DTooltip";
 
 // ============================================================================
 // Structure Visual Configurations
@@ -36,11 +35,6 @@ const STRUCTURE_CONFIG = {
     emissive: "#2980b9",
     scale: 2.5,
   },
-  quest_marker: {
-    color: "#9b59b6",
-    emissive: "#8e44ad",
-    scale: 1.2,
-  },
 };
 
 // ============================================================================
@@ -67,23 +61,10 @@ export function StructureVisual({
   const groupRef = useRef<Group>(null);
   const config = STRUCTURE_CONFIG[structure.type];
   const [pulseScale, setPulseScale] = useState(1);
-  const agents = useGameStore((state) => state.agents);
 
-  // Count assigned agents
-  const assignedAgentCount = useMemo(() => {
-    return Object.values(agents).filter(agent => agent.currentQuest === structure.id).length;
-  }, [agents, structure.id]);
-
-  // Animate certain structures (with throttling for performance)
-  const lastAnimationUpdate = useRef(0);
+  // Animate certain structures
   useFrame((state) => {
     if (!groupRef.current) return;
-
-    const now = performance.now();
-
-    // Throttle animation updates to every 50ms
-    if (now - lastAnimationUpdate.current < 50) return;
-    lastAnimationUpdate.current = now;
 
     const time = state.clock.elapsedTime;
 
@@ -112,7 +93,6 @@ export function StructureVisual({
     workshop: 2.5,
     campfire: 1.5,
     base: 4,
-    quest_marker: 2,
   };
 
   const radius = STRUCTURE_RADIUS[structure.type] || 3;
@@ -155,11 +135,10 @@ export function StructureVisual({
         {structure.type === "workshop" && <WorkshopMesh />}
         {structure.type === "campfire" && <CampfireMesh />}
         {structure.type === "base" && <BaseMesh />}
-        {structure.type === "quest_marker" && <QuestMarkerMesh />}
       </group>
 
-      {/* Name label - DISABLED FOR PERFORMANCE */}
-      {/* <Text
+      {/* Name label */}
+      <Text
         position={[0, 3, 0]}
         fontSize={0.3}
         color="#f4d03f"
@@ -169,10 +148,10 @@ export function StructureVisual({
         outlineColor="#000000"
       >
         {structure.name}
-      </Text> */}
+      </Text>
 
-      {/* Assignment indicator when agents can be assigned - DISABLED FOR PERFORMANCE */}
-      {/* {hasSelectedAgents && !isHovered && (
+      {/* Assignment indicator when agents can be assigned */}
+      {hasSelectedAgents && !isHovered && (
         <Text
           position={[0, 3.7, 0]}
           fontSize={0.2}
@@ -193,23 +172,9 @@ export function StructureVisual({
             <sphereGeometry args={[0.3, 8, 8]} />
             <meshBasicMaterial color="#f4d03f" />
           </mesh>
-          {/* <pointLight color="#f4d03f" intensity={2} distance={5} /> */} {/* Disabled for performance */}
+          <pointLight color="#f4d03f" intensity={2} distance={5} />
         </group>
       )}
-
-      {/* Tooltip on hover - ENABLED with LOD optimization */}
-      <Object3DTooltip
-        position={structure.position}
-        visible={isHovered}
-        minDistance={60} // Only show when camera is within 60 units
-      >
-        <StructureTooltipContent
-          name={structure.name}
-          type={structure.type}
-          description={structure.description}
-          assignedAgents={assignedAgentCount}
-        />
-      </Object3DTooltip>
     </group>
   );
 }
@@ -322,54 +287,6 @@ function BaseMesh() {
       <mesh position={[0.3, 4, 0]} rotation={[0, Math.PI / 2, 0]}>
         <planeGeometry args={[0.8, 0.5]} />
         <meshBasicMaterial color="#f4d03f" side={2} />
-      </mesh>
-    </group>
-  );
-}
-
-function QuestMarkerMesh() {
-  const config = STRUCTURE_CONFIG.quest_marker;
-  const groupRef = useRef<Group>(null);
-
-  // Floating animation
-  useFrame((state) => {
-    if (groupRef.current) {
-      groupRef.current.rotation.y = state.clock.elapsedTime * 0.5;
-      groupRef.current.position.y = Math.sin(state.clock.elapsedTime * 2) * 0.2 + 1.5;
-    }
-  });
-
-  return (
-    <group>
-      {/* Base pedestal */}
-      <mesh castShadow receiveShadow position={[0, 0.3, 0]}>
-        <cylinderGeometry args={[0.8, 1, 0.6, 8]} />
-        <meshStandardMaterial color="#5d4037" />
-      </mesh>
-      {/* Floating question mark crystal */}
-      <group ref={groupRef} position={[0, 1.5, 0]}>
-        <mesh castShadow>
-          <octahedronGeometry args={[0.6, 0]} />
-          <meshStandardMaterial
-            color={config.color}
-            emissive={config.emissive}
-            emissiveIntensity={0.8}
-            transparent
-            opacity={0.9}
-          />
-        </mesh>
-        {/* Inner glow */}
-        <mesh>
-          <octahedronGeometry args={[0.4, 0]} />
-          <meshBasicMaterial color="#ffffff" transparent opacity={0.5} />
-        </mesh>
-      </group>
-      {/* Glow light */}
-      <pointLight color={config.color} intensity={3} distance={8} position={[0, 1.5, 0]} />
-      {/* Ground ring */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, 0]}>
-        <ringGeometry args={[1, 1.3, 16]} />
-        <meshBasicMaterial color={config.color} transparent opacity={0.4} />
       </mesh>
     </group>
   );

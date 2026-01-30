@@ -1,8 +1,10 @@
 import { useRef, useCallback, useEffect, useMemo } from "react";
 import { useThree } from "@react-three/fiber";
-import { Vector2, Vector3, Raycaster, Camera, Sphere } from "three";
+import { Vector3, Raycaster, Plane, Camera, Sphere } from "three";
 import { useGameStore, useAgentsShallow, useStructuresShallow, type GameAgent, type Structure } from "../store/gameStore";
 
+// Get selectedAgentIds from store for checking selection state
+const getSelectedAgentIds = () => useGameStore.getState().selectedAgentIds;
 
 // ============================================================================
 // Selection Box Types
@@ -39,8 +41,10 @@ interface DragState {
 }
 
 export function useSelectionSystem(options: SelectionSystemOptions = {}) {
-  const { camera, size, gl } = useThree();
+  const { camera, size } = useThree();
   const raycaster = useRef(new Raycaster());
+  const mouse = useRef(new Vector3());
+  const groundPlane = useRef(new Plane(new Vector3(0, 1, 0), 0));
 
   // Use ref for drag state to avoid closure issues
   const dragStateRef = useRef<DragState>({
@@ -91,29 +95,24 @@ export function useSelectionSystem(options: SelectionSystemOptions = {}) {
   // Raycast to find agent under cursor
   const getAgentAtScreenPos = useCallback(
     (screenX: number, screenY: number) => {
-      const vector = new Vector2();
+      const vector = new Vector3();
       vector.set(
         (screenX / size.width) * 2 - 1,
-        -(screenY / size.height) * 2 + 1
+        -(screenY / size.height) * 2 + 1,
+        0.5
       );
 
       raycaster.current.setFromCamera(vector, camera);
 
-      // Check intersection with agent positions using sphere intersection
+      // Check intersection with agent positions
       const agentHits: Array<{ id: string; distance: number }> = [];
-      const AGENT_RADIUS = 1.5; // Clickable radius around agent
 
       for (const agent of agents) {
         const agentPos = new Vector3(...agent.position);
-        // Adjust agent position to center of agent model (y=0.75)
-        agentPos.y += 0.75;
+        const distance = agentPos.distanceTo(raycaster.current.ray.origin);
 
-        // Create a sphere for the agent bounds and check ray intersection
-        const sphere = new Sphere(agentPos, AGENT_RADIUS);
-        const intersection = raycaster.current.ray.intersectSphere(sphere, new Vector3());
-
-        if (intersection) {
-          const distance = intersection.distanceTo(raycaster.current.ray.origin);
+        // Simple proximity check (agent radius ~1 unit)
+        if (distance < 3) {
           agentHits.push({ id: agent.id, distance });
         }
       }
@@ -137,10 +136,11 @@ export function useSelectionSystem(options: SelectionSystemOptions = {}) {
   // Raycast to find structure under cursor
   const getStructureAtScreenPos = useCallback(
     (screenX: number, screenY: number) => {
-      const vector = new Vector2();
+      const vector = new Vector3();
       vector.set(
         (screenX / size.width) * 2 - 1,
-        -(screenY / size.height) * 2 + 1
+        -(screenY / size.height) * 2 + 1,
+        0.5
       );
 
       raycaster.current.setFromCamera(vector, camera);
@@ -368,49 +368,24 @@ export function useSelectionSystem(options: SelectionSystemOptions = {}) {
     e.preventDefault();
   }, []);
 
-  // Store handlers in refs to avoid recreating event listeners
-  const handlersRef = useRef({
-    handleMouseDown,
-    handleMouseMove,
-    handleMouseUp,
-    handleContextMenu
-  });
-
-  // Update refs when handlers change
+  // Set up event listeners
   useEffect(() => {
-    handlersRef.current = {
-      handleMouseDown,
-      handleMouseMove,
-      handleMouseUp,
-      handleContextMenu
-    };
-  }, [handleMouseDown, handleMouseMove, handleMouseUp, handleContextMenu]);
-
-  // Set up event listeners ONCE with wrapper functions that call latest handlers
-  useEffect(() => {
-    // Use the gl.domElement which is the canvas element from React Three Fiber
-    const canvas = gl.domElement;
+    const canvas = camera.domElement || document.querySelector("canvas");
 
     if (canvas) {
-      // Wrapper functions that always call the latest handler from ref
-      const onMouseDown = (e: MouseEvent) => handlersRef.current.handleMouseDown(e);
-      const onMouseMove = (e: MouseEvent) => handlersRef.current.handleMouseMove(e);
-      const onMouseUp = (e: MouseEvent) => handlersRef.current.handleMouseUp(e);
-      const onContextMenu = (e: MouseEvent) => handlersRef.current.handleContextMenu(e);
-
-      canvas.addEventListener("mousedown", onMouseDown);
-      canvas.addEventListener("mousemove", onMouseMove);
-      canvas.addEventListener("mouseup", onMouseUp);
-      canvas.addEventListener("contextmenu", onContextMenu);
+      canvas.addEventListener("mousedown", handleMouseDown);
+      canvas.addEventListener("mousemove", handleMouseMove);
+      canvas.addEventListener("mouseup", handleMouseUp);
+      canvas.addEventListener("contextmenu", handleContextMenu);
 
       return () => {
-        canvas.removeEventListener("mousedown", onMouseDown);
-        canvas.removeEventListener("mousemove", onMouseMove);
-        canvas.removeEventListener("mouseup", onMouseUp);
-        canvas.removeEventListener("contextmenu", onContextMenu);
+        canvas.removeEventListener("mousedown", handleMouseDown);
+        canvas.removeEventListener("mousemove", handleMouseMove);
+        canvas.removeEventListener("mouseup", handleMouseUp);
+        canvas.removeEventListener("contextmenu", handleContextMenu);
       };
     }
-  }, [gl]); // Only depend on gl, not the handlers
+  }, [camera, handleMouseDown, handleMouseMove, handleMouseUp, handleContextMenu]);
 
   return {
     screenToWorld,

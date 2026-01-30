@@ -2,9 +2,7 @@ import { useRef, useEffect, useMemo, useState, useCallback } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Group, Vector3, Color, Object3D, InstancedMesh } from "three";
 import { Text } from "@react-three/drei";
-import { useGameStore, useAgentsShallow, usePartiesShallow, type AgentState, type GameAgent as GameAgentType } from "../store/gameStore";
-import { useWorldManager } from "../world/WorldManager";
-import { Object3DTooltip, AgentTooltipContent } from "../ui/Object3DTooltip";
+import { useGameStore, useAgentsShallow, type AgentState, type GameAgent as GameAgentType } from "../store/gameStore";
 
 // ============================================================================
 // Agent State Visual Configurations
@@ -144,7 +142,7 @@ interface StateParticlesProps {
 
 function StateParticles({ agentState, position, onComplete }: StateParticlesProps) {
   const particlesRef = useRef<Group>(null);
-  const particlesStateRef = useRef<Particle[]>([]);
+  const [particles, setParticles] = useState<Particle[]>([]);
 
   // Spawn particles based on state
   useEffect(() => {
@@ -167,11 +165,11 @@ function StateParticles({ agentState, position, onComplete }: StateParticlesProp
           color: Math.random() > 0.5 ? "#f4d03f" : "#3498db",
         });
       }
-      particlesStateRef.current = newParticles;
+      setParticles(newParticles);
 
       // Auto-complete after animation
       const timer = setTimeout(() => {
-        particlesStateRef.current = [];
+        setParticles([]);
         onComplete?.();
       }, 1000);
       return () => clearTimeout(timer);
@@ -196,42 +194,46 @@ function StateParticles({ agentState, position, onComplete }: StateParticlesProp
           color: "#e74c3c",
         });
       }
-      particlesStateRef.current = newParticles;
+      setParticles(newParticles);
 
       const timer = setTimeout(() => {
-        particlesStateRef.current = [];
+        setParticles([]);
       }, 500);
       return () => clearTimeout(timer);
     } else {
-      particlesStateRef.current = [];
+      setParticles([]);
     }
   }, [agentState, onComplete]);
 
-  // Animate particles - NO forceUpdate to prevent re-renders
-  useFrame((_state, delta) => {
-    const particles = particlesStateRef.current;
+  // Animate particles
+  useFrame((state, delta) => {
     if (particles.length === 0) return;
 
-    // Update particles in place
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
-      p.position[0] += p.velocity[0] * delta;
-      p.position[1] += p.velocity[1] * delta;
-      p.position[2] += p.velocity[2] * delta;
-      p.velocity[1] -= 3 * delta; // gravity
-      p.life -= delta;
-
-      if (p.life <= 0) {
-        particles.splice(i, 1);
-      }
-    }
+    setParticles((prev) =>
+      prev
+        .map((p) => ({
+          ...p,
+          position: [
+            p.position[0] + p.velocity[0] * delta,
+            p.position[1] + p.velocity[1] * delta,
+            p.position[2] + p.velocity[2] * delta,
+          ],
+          velocity: [
+            p.velocity[0],
+            p.velocity[1] - 3 * delta, // gravity
+            p.velocity[2],
+          ],
+          life: p.life - delta,
+        }))
+        .filter((p) => p.life > 0)
+    );
   });
 
-  if (particlesStateRef.current.length === 0) return null;
+  if (particles.length === 0) return null;
 
   return (
     <group ref={particlesRef} position={position}>
-      {particlesStateRef.current.map((p, i) => (
+      {particles.map((p, i) => (
         <mesh key={i} position={p.position}>
           <sphereGeometry args={[p.size * (p.life / p.maxLife), 8, 8]} />
           <meshBasicMaterial color={p.color} transparent opacity={p.life / p.maxLife} />
@@ -375,12 +377,6 @@ function StateGlow({ state, position }: StateGlowProps) {
 // Individual Agent Component (for selected/hovered agents only)
 // ============================================================================
 
-// Helper function to get agent name by ID
-function getAgentName(agentId: string): string {
-  const agents = useGameStore.getState().agents;
-  return agents[agentId]?.name || "Unknown Agent";
-}
-
 interface GameAgentVisualProps {
   agent: GameAgentType;
   isSelected: boolean;
@@ -388,9 +384,6 @@ interface GameAgentVisualProps {
   onPointerOver: () => void;
   onPointerOut: () => void;
   onClick: () => void;
-  partyName?: string; // COORD-005: Party name for tooltip
-  partyColor?: string; // COORD-005: Party color for tooltip
-  hasSharedResources?: boolean; // COORD-002: Has party shared resources
 }
 
 export function GameAgentVisual({
@@ -400,9 +393,6 @@ export function GameAgentVisual({
   onPointerOver,
   onPointerOut,
   onClick,
-  partyName, // COORD-005
-  partyColor, // COORD-005
-  hasSharedResources, // COORD-002
 }: GameAgentVisualProps) {
   const groupRef = useRef<Group>(null);
   const bodyRef = useRef<Group>(null);
@@ -524,22 +514,6 @@ export function GameAgentVisual({
         </mesh>
       )}
 
-      {/* Party indicator - COORD-005 */}
-      {partyColor && (
-        <group position={[0, 1.8, 0]}>
-          {/* Party banner/flag */}
-          <mesh position={[0, 0, 0]}>
-            <boxGeometry args={[0.3, 0.4, 0.05]} />
-            <meshStandardMaterial color={partyColor} emissive={partyColor} emissiveIntensity={0.3} />
-          </mesh>
-          {/* Party icon (circle) */}
-          <mesh position={[0, 0, 0.03]}>
-            <circleGeometry args={[0.12, 16]} />
-            <meshBasicMaterial color="#ffffff" />
-          </mesh>
-        </group>
-      )}
-
       {/* Agent body group */}
       <group ref={bodyRef}>
         {/* Body */}
@@ -567,8 +541,8 @@ export function GameAgentVisual({
           <mesh castShadow position={[0, 0, 0]}>
             <boxGeometry args={[0.2, 0.6, 0.2]} />
             <meshStandardMaterial
-              color={currentColorRef.current}
-              emissive={currentEmissiveRef.current}
+              color={currentColor}
+              emissive={currentEmissive}
               emissiveIntensity={(stateConfig.glowIntensity || 0.3) * 0.5}
             />
           </mesh>
@@ -577,8 +551,8 @@ export function GameAgentVisual({
           <mesh castShadow position={[0, 0, 0]}>
             <boxGeometry args={[0.2, 0.6, 0.2]} />
             <meshStandardMaterial
-              color={currentColorRef.current}
-              emissive={currentEmissiveRef.current}
+              color={currentColor}
+              emissive={currentEmissive}
               emissiveIntensity={(stateConfig.glowIntensity || 0.3) * 0.5}
             />
           </mesh>
@@ -611,14 +585,6 @@ export function GameAgentVisual({
         </mesh>
       )}
 
-      {/* Shared resources indicator - COORD-002 */}
-      {hasSharedResources && (
-        <mesh position={[-0.7, 0.8, 0]}>
-          <sphereGeometry args={[0.12, 8, 8]} />
-          <meshBasicMaterial color="#ff9ff3" />
-        </mesh>
-      )}
-
       {/* State icon (floating above) - show for all states now with enhanced visibility */}
       <Text
         position={[0, 2.2, 0]}
@@ -631,42 +597,6 @@ export function GameAgentVisual({
       >
         {agent.thoughtBubble || AGENT_STATE_ICONS[agent.state]}
       </Text>
-
-      {/* Speech bubble for agent communication - COORD-004 */}
-      {agent.speechBubble && (
-        <group position={[0, 3.5, 0]}>
-          {/* Speech bubble background */}
-          <mesh position={[0, 0, 0]}>
-            <planeGeometry args={[3, 0.8]} />
-            <meshBasicMaterial color="#ffffff" transparent opacity={0.95} />
-          </mesh>
-          {/* Speech bubble border */}
-          <mesh position={[0, 0, -0.01]}>
-            <planeGeometry args={[3.1, 0.9]} />
-            <meshBasicMaterial color="#00d4ff" transparent opacity={0.3} />
-          </mesh>
-          {/* Speech bubble text */}
-          <Text
-            position={[0, 0, 0.01]}
-            fontSize={0.25}
-            color="#0066cc"
-            anchorX="center"
-            anchorY="middle"
-            maxWidth={2.8}
-            outlineWidth={0.01}
-            outlineColor="#ffffff"
-          >
-            {agent.speechBubble.targetAgentId
-              ? `→ ${getAgentName(agent.speechBubble.targetAgentId)}: ${agent.speechBubble.message}`
-              : agent.speechBubble.message}
-          </Text>
-          {/* Speech bubble tail pointer */}
-          <mesh position={[0, -0.5, 0]} rotation={[0, 0, Math.PI]}>
-            <coneGeometry args={[0.2, 0.3, 4]} />
-            <meshBasicMaterial color="#00d4ff" transparent opacity={0.3} />
-          </mesh>
-        </group>
-      )}
 
       {/* Agent name */}
       <Text
@@ -703,24 +633,6 @@ export function GameAgentVisual({
           </mesh>
         </group>
       )}
-
-      {/* Tooltip on hover */}
-      <Object3DTooltip
-        position={agent.position}
-        visible={isHovered}
-      >
-        <AgentTooltipContent
-          name={agent.name}
-          state={agent.state}
-          stateColor={AGENT_STATE_COLORS[agent.state]}
-          level={agent.level}
-          health={agent.health}
-          maxHealth={agent.maxHealth}
-          currentQuest={agent.currentQuest}
-          partyName={partyName} // COORD-005
-          partyColor={partyColor} // COORD-005
-        />
-      </Object3DTooltip>
     </group>
   );
 }
@@ -768,8 +680,6 @@ export function InstancedAgentRenderer({
 
   // Update instanced meshes
   useFrame(() => {
-    // Skip update if no agents to render
-    if (instancedAgents.length === 0) return;
     if (!bodyMeshRef.current || !headMeshRef.current) return;
 
     let index = 0;
@@ -827,11 +737,6 @@ export function InstancedAgentRenderer({
     }
   };
 
-  // Don't render instanced meshes if there are no agents to instance
-  if (instancedAgents.length === 0) {
-    return null;
-  }
-
   return (
     <>
       {/* Instanced body meshes */}
@@ -873,7 +778,6 @@ interface LODAgentRendererProps {
   hoverAgentId: string | null;
   onAgentClick: (agentId: string) => void;
   onAgentHover: (agentId: string | null) => void;
-  partiesMap?: Record<string, any>; // COORD-005: Parties data for tooltips
 }
 
 export function LODAgentRenderer({
@@ -882,7 +786,6 @@ export function LODAgentRenderer({
   hoverAgentId,
   onAgentClick,
   onAgentHover,
-  partiesMap = {}, // COORD-005
 }: LODAgentRendererProps) {
   // Agents that need detailed rendering (selected, hovered, or nearby)
   const [nearbyAgents, setNearbyAgents] = useState<GameAgentType[]>([]);
@@ -897,12 +800,6 @@ export function LODAgentRenderer({
 
   // Calculate which agents should be rendered in detail
   useEffect(() => {
-    // If there are few agents, render all in detail
-    if (agents.length <= 20) {
-      setNearbyAgents(agents);
-      return;
-    }
-
     const NEAR_THRESHOLD = 30; // Distance threshold for detailed rendering
     const detailed: GameAgentType[] = [];
 
@@ -941,29 +838,17 @@ export function LODAgentRenderer({
       />
 
       {/* Detailed rendering for nearby/selected agents */}
-      {nearbyAgents.map((agent) => {
-        // COORD-005: Get party info for tooltip
-        const party = agent.partyId && partiesMap[agent.partyId];
-        const partyName = party?.name;
-        const partyColor = party?.color;
-        // COORD-002: Check if party has shared resources
-        const hasSharedResources = party?.sharedResources?.tools && party.sharedResources.tools.length > 0;
-
-        return (
-          <GameAgentVisual
-            key={agent.id}
-            agent={agent}
-            isSelected={selectedAgentIds.has(agent.id)}
-            isHovered={hoverAgentId === agent.id}
-            onPointerOver={() => onAgentHover(agent.id)}
-            onPointerOut={() => onAgentHover(null)}
-            onClick={() => onAgentClick(agent.id)}
-            partyName={partyName} // COORD-005
-            partyColor={partyColor} // COORD-005
-            hasSharedResources={hasSharedResources} // COORD-002
-          />
-        );
-      })}
+      {nearbyAgents.map((agent) => (
+        <GameAgentVisual
+          key={agent.id}
+          agent={agent}
+          isSelected={selectedAgentIds.has(agent.id)}
+          isHovered={hoverAgentId === agent.id}
+          onPointerOver={() => onAgentHover(agent.id)}
+          onPointerOut={() => onAgentHover(null)}
+          onClick={() => onAgentClick(agent.id)}
+        />
+      ))}
     </>
   );
 }
@@ -981,15 +866,13 @@ export function AgentPool({ onAgentClick }: AgentPoolProps) {
   const selectedAgentIds = useGameStore((state) => state.selectedAgentIds);
   const hoverAgentId = useGameStore((state) => state.hoverAgentId);
   const setHoverAgent = useGameStore((state) => state.setHoverAgent);
-  const partiesMap = usePartiesShallow(); // COORD-005
 
   // Convert agents object to array for rendering
   const agentsArray = useMemo(() => Object.values(agents), [agents]);
 
-  // Handle agent click - just log, let SelectionSystem handle actual selection
+  // Handle agent click
   const handleAgentClick = useCallback(
     (agentId: string) => {
-      // Only call the optional callback - SelectionSystem handles selection
       onAgentClick?.(agentId);
     },
     [onAgentClick]
@@ -1011,7 +894,6 @@ export function AgentPool({ onAgentClick }: AgentPoolProps) {
       hoverAgentId={hoverAgentId}
       onAgentClick={handleAgentClick}
       onAgentHover={handleAgentHover}
-      partiesMap={partiesMap} // COORD-005
     />
   );
 }
@@ -1024,10 +906,6 @@ export function useAgentMovement(agentId: string) {
   const agent = useGameStore((state) => state.agents[agentId]);
   const updateAgent = useGameStore((state) => state.updateAgent);
   const setAgentPosition = useGameStore((state) => state.setAgentPosition);
-  const { findPath } = useWorldManager();
-
-  const [currentPathIndex, setCurrentPathIndex] = useState(0);
-  const [calculatedPath, setCalculatedPath] = useState<[number, number][] | null>(null);
 
   useEffect(() => {
     if (!agent || !agent.targetPosition) return;
@@ -1035,74 +913,13 @@ export function useAgentMovement(agentId: string) {
     const speed = 3; // units per second
     const currentPos = new Vector3(...agent.position);
     const targetPos = new Vector3(...agent.targetPosition);
-
-    // Calculate path using A* pathfinding
-    const path = findPath(
-      Math.round(currentPos.x),
-      Math.round(currentPos.z),
-      Math.round(targetPos.x),
-      Math.round(targetPos.z)
-    );
-
-    if (!path || path.length === 0) {
-      // No path found - move directly
-      const direction = targetPos.clone().sub(currentPos);
-      const distance = direction.length();
-
-      if (distance < 0.1) {
-        // Arrived at target
-        setAgentPosition(agentId, [targetPos.x, targetPos.y, targetPos.z]);
-        updateAgent(agentId, { targetPosition: null, state: agent.currentTask ? "WORKING" : "IDLE" });
-        return;
-      }
-
-      const startTime = Date.now();
-      const duration = (distance / speed) * 1000;
-
-      const animate = () => {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-
-        const newPos = currentPos.clone().add(direction.clone().multiplyScalar(progress));
-        setAgentPosition(agentId, [newPos.x, newPos.y, newPos.z]);
-
-        if (progress < 1) {
-          requestAnimationFrame(animate);
-        } else {
-          updateAgent(agentId, { targetPosition: null, state: agent.currentTask ? "WORKING" : "IDLE" });
-        }
-      };
-
-      animate();
-    } else {
-      // Path found - follow path
-      setCalculatedPath(path);
-      setCurrentPathIndex(0);
-    }
-  }, [agent, agentId, setAgentPosition, updateAgent, findPath]);
-
-  // Move agent along calculated path
-  useEffect(() => {
-    if (!agent || !calculatedPath || currentPathIndex >= calculatedPath.length) return;
-
-    const speed = 3; // units per second
-    const currentPos = new Vector3(...agent.position);
-    const targetNode = calculatedPath[currentPathIndex];
-    const targetPos = new Vector3(targetNode[0], 0, targetNode[1]);
     const direction = targetPos.clone().sub(currentPos);
     const distance = direction.length();
 
     if (distance < 0.1) {
-      // Arrived at this node, move to next
-      if (currentPathIndex < calculatedPath.length - 1) {
-        setCurrentPathIndex(currentPathIndex + 1);
-      } else {
-        // Arrived at final destination
-        setAgentPosition(agentId, [targetPos.x, targetPos.y, targetPos.z]);
-        updateAgent(agentId, { targetPosition: null, state: agent.currentTask ? "WORKING" : "IDLE" });
-        setCalculatedPath(null);
-        setCurrentPathIndex(0);
-      }
+      // Arrived at target
+      setAgentPosition(agentId, [targetPos.x, targetPos.y, targetPos.z]);
+      updateAgent(agentId, { targetPosition: null, state: agent.currentTask ? "WORKING" : "IDLE" });
       return;
     }
 
@@ -1119,21 +936,12 @@ export function useAgentMovement(agentId: string) {
       if (progress < 1) {
         requestAnimationFrame(animate);
       } else {
-        // Arrived at this node, move to next
-        if (currentPathIndex < calculatedPath.length - 1) {
-          setCurrentPathIndex(currentPathIndex + 1);
-        } else {
-          // Arrived at final destination
-          setAgentPosition(agentId, [targetPos.x, targetPos.y, targetPos.z]);
-          updateAgent(agentId, { targetPosition: null, state: agent.currentTask ? "WORKING" : "IDLE" });
-          setCalculatedPath(null);
-          setCurrentPathIndex(0);
-        }
+        updateAgent(agentId, { targetPosition: null, state: "IDLE" });
       }
     };
 
     animate();
-  }, [agent, agentId, calculatedPath, currentPathIndex, setAgentPosition, updateAgent]);
+  }, [agent, agentId, setAgentPosition, updateAgent]);
 }
 
 // ============================================================================
