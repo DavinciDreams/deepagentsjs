@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, createContext, useContext } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { useGameStore, type AgentState, type DragonType } from "../store/gameStore";
-// LangChain cannot be used in browser - using mock implementation
-// import { createDeepAgent, type DeepAgent } from "deepagents";
-// import { tool } from "langchain";
-// import { ChatOpenAI } from "@langchain/openai";
+import { useGameStore, type GameAgent, type AgentState, type DragonType } from "../store/gameStore";
+import type { DeepAgent, DeepAgentTypeConfig } from "deepagents";
+import { useFileOperations } from "../entities/FileOperation";
 
 // ============================================================================
 // Types
@@ -15,15 +13,6 @@ export interface AgentConfig {
   model?: string;
   tools?: any[];
   systemPrompt?: string;
-}
-
-export interface MockDeepAgent {
-  id: string;
-  name: string;
-  stream: () => AsyncIterable<AgentEvent>;
-  graph?: {
-    stream: () => AsyncIterable<any>;
-  };
 }
 
 export interface AgentEvent {
@@ -84,8 +73,9 @@ export function useAgentBridge() {
   const updateAgent = useGameStore((state) => state.updateAgent);
   const setAgentState = useGameStore((state) => state.setAgentState);
   const setThoughtBubble = useGameStore((state) => state.setThoughtBubble);
-  const setSpeechBubble = useGameStore((state) => state.setSpeechBubble);
   const spawnDragon = useGameStore((state) => state.spawnDragon);
+  const removeDragon = useGameStore((state) => state.removeDragon);
+  const { addOperation } = useFileOperations();
 
   // Spawn a new Deep Agent and create visual representation
   const spawnDeepAgent = useCallback(
@@ -96,20 +86,12 @@ export function useAgentBridge() {
       // Spawn visual agent
       const gameAgent = spawnAgent(name, [25 + Math.random() * 5, 0, 25 + Math.random() * 5]);
 
-      // NOTE: LangChain/OpenAI cannot run in browser due to Node.js dependencies
-      // Using mock agent for demonstration. To use real agents:
-      // 1. Create a backend API server
-      // 2. Move createDeepAgent logic to the server
-      // 3. Have frontend communicate via fetch/WebSocket
-      const mockAgentRef = {
-        id: agentId,
-        name,
-        stream: async () => createMockAgentStream(agentId),
-      };
-
-      // Store mock agent reference
+      // Store Deep Agent reference (will be set when agent is invoked)
       updateAgent(gameAgent.id, {
-        agentRef: mockAgentRef as any,
+        agentRef: {
+          id: agentId,
+          config,
+        },
       });
 
       return gameAgent.id;
@@ -156,8 +138,7 @@ export function useAgentBridge() {
   // Handle error -> dragon spawn
   const handleError = useCallback(
     (agentId: string, error: string) => {
-      const agents = useGameStore.getState().agents;
-      const agent = agents[agentId];
+      const agent = useGameStore.getState().agents[agentId];
       if (!agent) return;
 
       const dragonType = ERROR_TO_DRAGON_TYPE(error);
@@ -179,8 +160,7 @@ export function useAgentBridge() {
   // Handle subagent spawn
   const handleSubagentSpawn = useCallback(
     (parentAgentId: string, subagentName: string) => {
-      const agents = useGameStore.getState().agents;
-      const parent = agents[parentAgentId];
+      const parent = useGameStore.getState().agents[parentAgentId];
       if (!parent) return;
 
       // Spawn subagent visual near parent
@@ -200,73 +180,28 @@ export function useAgentBridge() {
     [spawnAgent]
   );
 
-  // Handle agent communication - COORD-004
-  const handleAgentCommunication = useCallback(
-    (fromAgentId: string, toAgentId: string, message: string) => {
-      // Show speech bubble on the speaking agent
-      setSpeechBubble(fromAgentId, message, toAgentId, 4000);
+  // Handle file read operation
+  const handleFileRead = useCallback(
+    (agentId: string, filename: string) => {
+      const agent = useGameStore.getState().agents[agentId];
+      if (!agent) return;
 
-      // If the target agent is nearby, they might respond
-      const agents = useGameStore.getState().agents;
-      const fromAgent = agents[fromAgentId];
-      const toAgent = agents[toAgentId];
-
-      if (fromAgent && toAgent) {
-        const distance = Math.sqrt(
-          Math.pow(fromAgent.position[0] - toAgent.position[0], 2) +
-          Math.pow(fromAgent.position[2] - toAgent.position[2], 2)
-        );
-
-        // If agents are close, trigger a response after a delay
-        if (distance < 10) {
-          setTimeout(() => {
-            const responses = [
-              "Got it!",
-              "On my way!",
-              "Thanks!",
-              "Understood!",
-              "Copy that!",
-            ];
-            const response = responses[Math.floor(Math.random() * responses.length)];
-            setSpeechBubble(toAgentId, response, fromAgentId, 3000);
-          }, 1000 + Math.random() * 2000);
-        }
-      }
+      addOperation(agentId, "read", filename, agent.position);
+      setThoughtBubble(agentId, `📖 Reading ${filename}...`);
     },
-    [setSpeechBubble]
+    [addOperation, setThoughtBubble]
   );
 
-  // Broadcast message to all party members - COORD-004
-  const broadcastToParty = useCallback(
-    (agentId: string, message: string) => {
-      const agents = useGameStore.getState().agents;
-      const agent = agents[agentId];
-      if (!agent?.partyId) return;
+  // Handle file write operation
+  const handleFileWrite = useCallback(
+    (agentId: string, filename: string) => {
+      const agent = useGameStore.getState().agents[agentId];
+      if (!agent) return;
 
-      const parties = useGameStore.getState().parties;
-      const party = parties[agent.partyId];
-      if (!party) return;
-
-      // Show speech bubble on the speaking agent
-      setSpeechBubble(agentId, `📢 ${message}`, undefined, 4000);
-
-      // Respond after delay
-      setTimeout(() => {
-        party.memberIds.forEach((memberId) => {
-          if (memberId !== agentId) {
-            const acknowledgments = [
-              "👍",
-              "✅",
-              "On it!",
-              "Roger!",
-            ];
-            const ack = acknowledgments[Math.floor(Math.random() * acknowledgments.length)];
-            setSpeechBubble(memberId, ack, undefined, 2000);
-          }
-        });
-      }, 500 + Math.random() * 1000);
+      addOperation(agentId, "write", filename, agent.position);
+      setThoughtBubble(agentId, `✍️ Writing ${filename}...`);
     },
-    [setSpeechBubble]
+    [addOperation, setThoughtBubble]
   );
 
   return {
@@ -275,8 +210,8 @@ export function useAgentBridge() {
     handleToolCall,
     handleError,
     handleSubagentSpawn,
-    handleAgentCommunication,
-    broadcastToParty,
+    handleFileRead,
+    handleFileWrite,
   };
 }
 
@@ -357,12 +292,11 @@ export function AgentBridgeProvider({ children }: AgentBridgeProviderProps) {
 
   // Register an agent for streaming
   const registerAgent = useCallback(
-    async (_agentId: string, _deepAgent: MockDeepAgent) => {
-      // NOTE: Using mock stream for browser compatibility
-      // In production, this would connect to a backend API
-      const mockStream = createMockAgentStream(_agentId);
+    (agentId: string, deepAgent: DeepAgent) => {
+      const streamProcessor = deepAgent.stream?.({ messages: [] });
+      if (!streamProcessor) return;
 
-      const { cancel } = processAgentStream(mockStream, {
+      const { cancel } = processAgentStream(streamProcessor as AsyncIterable<any>, {
         agentId,
         onEvent: (event) => {
           bridge.syncVisualState(agentId, event);
@@ -389,6 +323,7 @@ export function AgentBridgeProvider({ children }: AgentBridgeProviderProps) {
         },
         onComplete: () => {
           // Stream completed
+          console.log(`Agent ${agentId} stream completed`);
         },
         onError: (error) => {
           // Stream error - spawn dragon
@@ -432,7 +367,7 @@ export function AgentBridgeProvider({ children }: AgentBridgeProviderProps) {
 // ============================================================================
 
 interface AgentBridgeContextValue {
-  registerAgent: (agentId: string, deepAgent: MockDeepAgent) => Promise<void>;
+  registerAgent: (agentId: string, deepAgent: DeepAgent) => void;
   unregisterAgent: (agentId: string) => void;
   bridge: ReturnType<typeof useAgentBridge>;
 }
