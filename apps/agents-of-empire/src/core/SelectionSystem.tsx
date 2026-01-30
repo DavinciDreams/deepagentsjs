@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect, useMemo } from "react";
 import { useThree } from "@react-three/fiber";
-import { Vector3, Raycaster, Plane, Camera, Sphere } from "three";
+import { Vector2, Vector3, Raycaster, Plane, Camera, Sphere } from "three";
 import { useGameStore, useAgentsShallow, useStructuresShallow, type GameAgent, type Structure } from "../store/gameStore";
 
 // Get selectedAgentIds from store for checking selection state
@@ -95,24 +95,25 @@ export function useSelectionSystem(options: SelectionSystemOptions = {}) {
   // Raycast to find agent under cursor
   const getAgentAtScreenPos = useCallback(
     (screenX: number, screenY: number) => {
-      const vector = new Vector3();
-      vector.set(
+      const ndc = new Vector2(
         (screenX / size.width) * 2 - 1,
-        -(screenY / size.height) * 2 + 1,
-        0.5
+        -(screenY / size.height) * 2 + 1
       );
 
-      raycaster.current.setFromCamera(vector, camera);
+      raycaster.current.setFromCamera(ndc, camera);
 
-      // Check intersection with agent positions
+      // Check intersection with agent positions using distance to ray
       const agentHits: Array<{ id: string; distance: number }> = [];
+      const ray = raycaster.current.ray;
 
       for (const agent of agents) {
         const agentPos = new Vector3(...agent.position);
-        const distance = agentPos.distanceTo(raycaster.current.ray.origin);
+        const closestPoint = new Vector3();
+        ray.closestPointToPoint(agentPos, closestPoint);
+        const distance = agentPos.distanceTo(closestPoint);
 
-        // Simple proximity check (agent radius ~1 unit)
-        if (distance < 3) {
+        // Agent radius ~1 unit, allow some tolerance for click targeting
+        if (distance < 2) {
           agentHits.push({ id: agent.id, distance });
         }
       }
@@ -136,14 +137,12 @@ export function useSelectionSystem(options: SelectionSystemOptions = {}) {
   // Raycast to find structure under cursor
   const getStructureAtScreenPos = useCallback(
     (screenX: number, screenY: number) => {
-      const vector = new Vector3();
-      vector.set(
+      const ndc = new Vector2(
         (screenX / size.width) * 2 - 1,
-        -(screenY / size.height) * 2 + 1,
-        0.5
+        -(screenY / size.height) * 2 + 1
       );
 
-      raycaster.current.setFromCamera(vector, camera);
+      raycaster.current.setFromCamera(ndc, camera);
 
       // Check intersection with structure positions
       const structureHits: Array<{ id: string; structure: Structure; distance: number }> = [];

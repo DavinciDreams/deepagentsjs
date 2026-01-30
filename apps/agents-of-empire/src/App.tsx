@@ -16,6 +16,7 @@ import { ConnectionLines, ConnectionLegend } from "./entities/ConnectionLines";
 import { HUD } from "./ui/HUD";
 import { useGameStore } from "./store/gameStore";
 import Landing from "./landing/Landing";
+import { AgentBridgeProvider } from "./bridge/AgentBridge";
 
 // ============================================================================
 // Game Initialization (runs outside Canvas)
@@ -338,31 +339,33 @@ export default function App() {
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-gray-900">
-      <Suspense fallback={<LoadingScreen />}>
-        {/* Initialize game state before Canvas */}
-        {!isReady && <GameInitializer onReady={() => setIsReady(true)} />}
+      <AgentBridgeProvider>
+        <Suspense fallback={<LoadingScreen />}>
+          {/* Initialize game state before Canvas */}
+          {!isReady && <GameInitializer onReady={() => setIsReady(true)} />}
 
-        {/* Show loading until ready */}
-        {!isReady ? (
-          <LoadingScreen />
-        ) : (
-          <>
-            <Canvas
-              shadows
-              camera={{ position: [0, 30, 0], fov: 50 }}
-              gl={{ antialias: true, alpha: false }}
-            >
-              <GameScene />
-              <CameraController />
-              <GameLoop /> {/* Game loop runs inside Canvas */}
-            </Canvas>
+          {/* Show loading until ready */}
+          {!isReady ? (
+            <LoadingScreen />
+          ) : (
+            <>
+              <Canvas
+                shadows
+                camera={{ position: [0, 30, 0], fov: 50 }}
+                gl={{ antialias: true, alpha: false }}
+              >
+                <GameScene />
+                <CameraController />
+                <GameLoop /> {/* Game loop runs inside Canvas */}
+              </Canvas>
 
-            <HUD />
-            <SelectionBoxOverlay />
-            <ConnectionLegend position="top-right" />
-          </>
-        )}
-      </Suspense>
+              <HUD />
+              <SelectionBoxOverlay />
+              <ConnectionLegend position="top-right" />
+            </>
+          )}
+        </Suspense>
+      </AgentBridgeProvider>
     </div>
   );
 }
