@@ -1,6 +1,6 @@
 {
   "name": "deepagents-cli",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "description": "DeepAgents CLI - AI Coding Assistant for your terminal",
   "license": "MIT",
   "type": "module",
