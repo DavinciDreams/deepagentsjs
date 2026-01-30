@@ -1,8 +1,9 @@
-import { useRef, useMemo, useCallback } from "react";
+import { useRef, useMemo, useCallback, useState } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Group } from "three";
+import { Group, Vector3 } from "three";
 import { Text } from "@react-three/drei";
 import { useGameStore, useAgentsShallow, useDragonsShallow, type GameAgent, type Dragon as DragonType } from "../store/gameStore";
+import { Object3DTooltip, DragonTooltipContent } from "../ui/Object3DTooltip";
 
 // ============================================================================
 // Dragon Types Configuration
@@ -54,6 +55,7 @@ export function DragonVisual({ dragon }: DragonVisualProps) {
   const groupRef = useRef<Group>(null);
   const bodyRef = useRef<Group>(null);
   const particlesRef = useRef<Group>(null);
+  const [isHovered, setIsHovered] = useState(false);
 
   const config = DRAGON_CONFIG[dragon.type];
   const healthPercent = dragon.health / dragon.maxHealth;
@@ -97,7 +99,12 @@ export function DragonVisual({ dragon }: DragonVisualProps) {
   };
 
   return (
-    <group ref={groupRef} position={dragon.position}>
+    <group
+      ref={groupRef}
+      position={dragon.position}
+      onPointerOver={() => setIsHovered(true)}
+      onPointerOut={() => setIsHovered(false)}
+    >
       {/* Shadow on ground */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.8, 0]}>
         <circleGeometry args={[config.size * 0.8, 16]} />
@@ -145,6 +152,20 @@ export function DragonVisual({ dragon }: DragonVisualProps) {
       >
         {dragon.type} DRAGON
       </Text>
+
+      {/* Tooltip on hover */}
+      <Object3DTooltip
+        position={dragon.position}
+        visible={isHovered}
+      >
+        <DragonTooltipContent
+          name={`${dragon.type} Dragon`}
+          type={dragon.type}
+          health={dragon.health}
+          maxHealth={dragon.maxHealth}
+          errorType={dragon.error}
+        />
+      </Object3DTooltip>
     </group>
   );
 }
@@ -448,9 +469,48 @@ export function useCombat() {
     [attackDragon, setAgentState, updateAgent]
   );
 
+  // Call for reinforcements - nearby idle agents join combat
+  const callForReinforcements = useCallback(
+    (agentId: string, dragonId: string, radius: number = 15) => {
+      const agent = agentsMap[agentId];
+      const dragon = dragonsMap[dragonId];
+
+      if (!agent || !dragon) return [];
+
+      const agentPosition = new Vector3(...agent.position);
+      const reinforcedAgents: string[] = [];
+
+      // Find nearby idle agents
+      for (const [otherAgentId, otherAgent] of Object.entries(agentsMap)) {
+        // Skip self and agents already in combat
+        if (otherAgentId === agentId || otherAgent.state === "COMBAT" || otherAgent.state === "ERROR") {
+          continue;
+        }
+
+        const otherPosition = new Vector3(...otherAgent.position);
+        const distance = agentPosition.distanceTo(otherPosition);
+
+        // Check if agent is within reinforcement radius
+        if (distance <= radius) {
+          // Agent joins the fight!
+          setAgentState(otherAgentId, "COMBAT");
+          updateAgent(otherAgentId, {
+            currentTask: "Reinforcing!",
+            targetPosition: [...dragon.position] as [number, number, number],
+          });
+          reinforcedAgents.push(otherAgentId);
+        }
+      }
+
+      return reinforcedAgents;
+    },
+    [agentsMap, setAgentState, updateAgent]
+  );
+
   return {
     attackDragon,
     autoResolveCombat,
+    callForReinforcements,
   };
 }
 

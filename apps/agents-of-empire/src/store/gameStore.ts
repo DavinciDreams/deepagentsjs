@@ -1,10 +1,6 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
-import { enableMapSet } from "immer";
 import { v4 as uuidv4 } from "uuid";
-
-// Enable immer support for Set and Map
-enableMapSet();
 
 // ============================================================================
 // Types
@@ -42,13 +38,17 @@ export interface GameAgent {
   parentId: string | null; // For subagents
   childrenIds: string[]; // For tracking spawned subagents
   thoughtBubble: string | null;
+  speechBubble: {
+    message: string;
+    targetAgentId?: string; // If present, shows "→ AgentName: message"
+    timestamp: number;
+  } | null;
   lastToolCall: string | null;
   lastMove?: number;
   thinkStart?: number | null;
   workStart?: number | null;
   completeStart?: number | null;
-  currentPath: [number, number][] | null; // Path for agent movement
-  pathIndex: number; // Current index in the path
+  partyId: string | null; // Party membership
 }
 
 export type DragonType = "SYNTAX" | "RUNTIME" | "NETWORK" | "PERMISSION" | "UNKNOWN";
@@ -63,7 +63,7 @@ export interface Dragon {
   targetAgentId: string | null;
 }
 
-export type StructureType = "castle" | "tower" | "workshop" | "campfire" | "base" | "quest_marker";
+export type StructureType = "castle" | "tower" | "workshop" | "campfire" | "base";
 
 export interface Structure {
   id: string;
@@ -88,9 +88,6 @@ export interface Quest {
   questlineId?: string; // Reference to parent questline
   prerequisiteQuestIds?: string[]; // Quests that must be completed first
   position?: number; // Position within questline sequence
-  taskType?: "list_directory" | "read_file" | "custom" | "dungeon_explore"; // Type of task to execute
-  taskPath?: string; // Path for file operations
-  logs?: string; // Output logs from completed task
 }
 
 export type QuestlineStatus = "not_started" | "in_progress" | "completed" | "failed";
@@ -114,15 +111,20 @@ export interface Tile {
   walkable: boolean;
 }
 
-export type FormationType = "line" | "column" | "wedge" | "square" | "circle";
+export type FormationType = "line" | "wedge" | "column" | "box" | "circle" | "free";
 
 export interface Party {
   id: string;
   name: string;
-  leaderId: string;
   memberIds: string[];
   formation: FormationType;
-  targetPosition: [number, number, number] | null;
+  leaderId: string | null;
+  createdAt: number;
+  color: string; // For UI identification
+  sharedResources: {
+    tools: Tool[]; // Tools accessible to all party members
+    lastUpdated: number; // Timestamp of last resource change
+  };
 }
 
 // ============================================================================
@@ -138,6 +140,10 @@ interface GameState {
   agents: Record<string, GameAgent>;
   selectedAgentIds: Set<string>;
   agentCount: number; // Cached count for UI
+
+  // Parties
+  parties: Record<string, Party>;
+  partyCount: number; // Cached count for UI
 
   // Dragons (errors)
   dragons: Record<string, Dragon>;
@@ -155,9 +161,6 @@ interface GameState {
   // Questlines
   questlines: Record<string, Questline>;
   activeQuestlineId: string | null;
-
-  // Parties
-  parties: Record<string, Party>;
 
   // Camera
   cameraPosition: { x: number; y: number; z: number };
@@ -214,6 +217,12 @@ interface GameActions {
   unequipTool: (agentId: string) => void;
   addToolToInventory: (agentId: string, tool: Tool) => void;
   setThoughtBubble: (agentId: string, thought: string | null) => void;
+  setSpeechBubble: (
+    agentId: string,
+    message: string,
+    targetAgentId?: string,
+    duration?: number
+  ) => void;
 
   // Selection
   selectAgent: (id: string) => void;
@@ -227,6 +236,17 @@ interface GameActions {
   ) => void;
   clearSelection: () => void;
   selectAllAgents: () => void;
+
+  // Parties
+  createParty: (name: string, memberIds: string[], leaderId?: string) => Party;
+  addToParty: (partyId: string, agentId: string) => void;
+  removeFromParty: (partyId: string, agentId: string) => void;
+  disbandParty: (partyId: string) => void;
+  setPartyFormation: (partyId: string, formation: FormationType) => void;
+  setPartyLeader: (partyId: string, leaderId: string) => void;
+  moveParty: (partyId: string, targetPosition: [number, number, number]) => void;
+  addToolToPartyShared: (partyId: string, tool: Tool) => void;
+  removeToolFromPartyShared: (partyId: string, toolId: string) => void;
 
   // Dragons
   spawnDragon: (
@@ -297,6 +317,8 @@ export const useGameStore = create<GameStore>()(
     agents: {},
     selectedAgentIds: new Set(),
     agentCount: 0,
+    parties: {},
+    partyCount: 0,
     dragons: {},
     dragonCount: 0,
     structures: {},
@@ -306,7 +328,6 @@ export const useGameStore = create<GameStore>()(
     completedQuestCount: 0,
     questlines: {},
     activeQuestlineId: null,
-    parties: {},
     cameraPosition: { x: 25, y: 30, z: 25 },
     cameraTarget: { x: 0, y: 0, z: 0 },
     zoom: 1,
@@ -333,7 +354,7 @@ export const useGameStore = create<GameStore>()(
       for (let x = 0; x < width; x++) {
         for (let z = 0; z < height; z++) {
           const key = `${x},${z}`;
-          const type = Math.random() < 0.05 ? "stone" : "grass" as TileType;
+          const type: TileType = Math.random() < 0.05 ? "stone" : "grass";
           state.tiles[key] = { x, z, type, walkable: type !== "water" };
         }
       }
@@ -369,7 +390,9 @@ export const useGameStore = create<GameStore>()(
       parentId: parentId || null,
       childrenIds: [],
       thoughtBubble: null,
+      speechBubble: null,
       lastToolCall: null,
+      partyId: null,
       currentPath: null,
       pathIndex: 0,
     };
@@ -473,10 +496,6 @@ export const useGameStore = create<GameStore>()(
     get().updateAgent(id, { targetPosition: target });
   },
 
-  setAgentPath: (id, path) => {
-    get().updateAgent(id, { currentPath: path, pathIndex: 0 });
-  },
-
   equipTool: (agentId, tool) => {
     get().updateAgent(agentId, { equippedTool: tool });
   },
@@ -496,6 +515,21 @@ export const useGameStore = create<GameStore>()(
 
   setThoughtBubble: (agentId, thought) => {
     get().updateAgent(agentId, { thoughtBubble: thought });
+  },
+
+  setSpeechBubble: (agentId, message, targetAgentId, duration = 3000) => {
+    const timestamp = Date.now();
+    get().updateAgent(agentId, {
+      speechBubble: { message, targetAgentId, timestamp }
+    });
+
+    // Auto-clear speech bubble after duration
+    setTimeout(() => {
+      const agent = get().agents[agentId];
+      if (agent?.speechBubble?.timestamp === timestamp) {
+        get().updateAgent(agentId, { speechBubble: null });
+      }
+    }, duration);
   },
 
   // Selection Actions
@@ -542,6 +576,242 @@ export const useGameStore = create<GameStore>()(
   selectAllAgents: () => {
     set((state) => {
       state.selectedAgentIds = new Set(Object.keys(state.agents));
+    });
+  },
+
+  // Party Actions
+  createParty: (name, memberIds, leaderId) => {
+    const id = uuidv4();
+    const colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#FFA07A", "#98D8C8", "#F7DC6F", "#BB8FCE"];
+    const color = colors[Math.floor(Math.random() * colors.length)];
+
+    const party: Party = {
+      id,
+      name,
+      memberIds: [...memberIds],
+      formation: "free",
+      leaderId: leaderId || memberIds[0] || null,
+      createdAt: Date.now(),
+      color,
+      sharedResources: {
+        tools: [],
+        lastUpdated: Date.now(),
+      },
+    };
+
+    set((state) => {
+      state.parties[id] = party;
+      state.partyCount = state.partyCount + 1;
+
+      // Update all members to reference this party
+      memberIds.forEach((agentId) => {
+        if (state.agents[agentId]) {
+          state.agents[agentId].partyId = id;
+        }
+      });
+    });
+
+    // Trigger speech bubbles for party formation - COORD-004
+    const greetings = ["Let's do this!", "Team up!", "Ready!", "Together!"];
+    memberIds.forEach((agentId, index) => {
+      setTimeout(() => {
+        get().setSpeechBubble(
+          agentId,
+          greetings[index % greetings.length],
+          undefined,
+          3000
+        );
+      }, index * 300);
+    });
+
+    return party;
+  },
+
+  addToParty: (partyId, agentId) => {
+    set((state) => {
+      const party = state.parties[partyId];
+      const agent = state.agents[agentId];
+
+      if (party && agent && !party.memberIds.includes(agentId)) {
+        // Remove agent from current party if any
+        if (agent.partyId && state.parties[agent.partyId]) {
+          state.parties[agent.partyId].memberIds = state.parties[agent.partyId].memberIds.filter(
+            (id) => id !== agentId
+          );
+        }
+
+        // Add to new party
+        party.memberIds.push(agentId);
+        agent.partyId = partyId;
+      }
+    });
+  },
+
+  removeFromParty: (partyId, agentId) => {
+    set((state) => {
+      const party = state.parties[partyId];
+      const agent = state.agents[agentId];
+
+      if (party && agent) {
+        party.memberIds = party.memberIds.filter((id) => id !== agentId);
+        agent.partyId = null;
+
+        // Update leader if removed
+        if (party.leaderId === agentId) {
+          party.leaderId = party.memberIds.length > 0 ? party.memberIds[0] : null;
+        }
+
+        // Disband party if no members left
+        if (party.memberIds.length === 0) {
+          delete state.parties[partyId];
+          state.partyCount = Math.max(0, state.partyCount - 1);
+        }
+      }
+    });
+  },
+
+  disbandParty: (partyId) => {
+    set((state) => {
+      const party = state.parties[partyId];
+      if (party) {
+        // Remove party reference from all members
+        party.memberIds.forEach((agentId) => {
+          if (state.agents[agentId]) {
+            state.agents[agentId].partyId = null;
+          }
+        });
+
+        delete state.parties[partyId];
+        state.partyCount = Math.max(0, state.partyCount - 1);
+      }
+    });
+  },
+
+  setPartyFormation: (partyId, formation) => {
+    set((state) => {
+      const party = state.parties[partyId];
+      if (party) {
+        party.formation = formation;
+      }
+    });
+  },
+
+  setPartyLeader: (partyId, leaderId) => {
+    set((state) => {
+      const party = state.parties[partyId];
+      if (party && party.memberIds.includes(leaderId)) {
+        party.leaderId = leaderId;
+      }
+    });
+  },
+
+  moveParty: (partyId, targetPosition) => {
+    const party = get().parties[partyId];
+    if (!party || party.memberIds.length === 0) return;
+
+    const formation = party.formation;
+    const leader = get().agents[party.leaderId || party.memberIds[0]];
+
+    if (!leader) return;
+
+    // Move leader to target
+    get().setAgentTarget(leader.id, targetPosition);
+
+    // Calculate formation positions for other members
+    const members = party.memberIds.filter((id) => id !== leader.id);
+    const spacing = 2;
+
+    members.forEach((memberId, index) => {
+      const agent = get().agents[memberId];
+      if (!agent) return;
+
+      let offset: [number, number, number] = [0, 0, 0];
+
+      switch (formation) {
+        case "line":
+          offset = [spacing * (index + 1), 0, 0];
+          break;
+        case "column":
+          offset = [0, 0, spacing * (index + 1)];
+          break;
+        case "wedge":
+          const side = index % 2 === 0 ? 1 : -1;
+          const dist = Math.floor(index / 2) + 1;
+          offset = [side * spacing * dist, 0, spacing * dist];
+          break;
+        case "box":
+          const boxSize = Math.ceil(Math.sqrt(members.length + 1));
+          const row = Math.floor((index + 1) / boxSize);
+          const col = (index + 1) % boxSize;
+          offset = [col * spacing, 0, row * spacing];
+          break;
+        case "circle":
+          const angle = (index / members.length) * Math.PI * 2;
+          const radius = spacing * 2;
+          offset = [Math.cos(angle) * radius, 0, Math.sin(angle) * radius];
+          break;
+        case "free":
+        default:
+          // Random scatter around target
+          offset = [
+            (Math.random() - 0.5) * spacing * 4,
+            0,
+            (Math.random() - 0.5) * spacing * 4,
+          ];
+          break;
+      }
+
+      const memberTarget: [number, number, number] = [
+        targetPosition[0] + offset[0],
+        targetPosition[1] + offset[1],
+        targetPosition[2] + offset[2],
+      ];
+
+      get().setAgentTarget(memberId, memberTarget);
+    });
+  },
+
+  // Shared Resource Actions
+  addToolToPartyShared: (partyId, tool) => {
+    set((state) => {
+      const party = state.parties[partyId];
+      if (party) {
+        party.sharedResources.tools.push(tool);
+        party.sharedResources.lastUpdated = Date.now();
+      }
+    });
+
+    // Trigger speech bubbles when tool is shared - COORD-004
+    const party = get().parties[partyId];
+    if (party && party.memberIds.length > 0) {
+      const sharerId = party.memberIds[0]; // First member shares
+      const thanks = ["Thanks!", "Awesome!", "Got it!", "Sweet!"];
+      party.memberIds.forEach((agentId, index) => {
+        if (index === 0) {
+          // Sharer announces
+          get().setSpeechBubble(sharerId, `Sharing ${tool.name}!`, undefined, 2000);
+        } else {
+          // Others respond with delay
+          setTimeout(() => {
+            get().setSpeechBubble(
+              agentId,
+              thanks[index % thanks.length],
+              undefined,
+              2000
+            );
+          }, 500 + index * 200);
+        }
+      });
+    }
+  },
+
+  removeToolFromPartyShared: (partyId, toolId) => {
+    set((state) => {
+      const party = state.parties[partyId];
+      if (party) {
+        party.sharedResources.tools = party.sharedResources.tools.filter((t) => t.id !== toolId);
+        party.sharedResources.lastUpdated = Date.now();
+      }
     });
   },
 
@@ -633,39 +903,36 @@ export const useGameStore = create<GameStore>()(
   },
 
   updateQuest: (id, updates) => {
-    console.log("[Quest] updateQuest called:", { id, updates });
     set((state) => {
       const quest = state.quests[id];
-      console.log("[Quest] Quest before update:", JSON.stringify(quest));
       if (quest) {
         const oldCompleted = quest.status === "completed";
         Object.assign(state.quests[id], updates);
         const newCompleted = (updates.status ?? quest.status) === "completed";
         const completedDelta = newCompleted ? 1 : 0 - (oldCompleted ? 1 : 0);
         state.completedQuestCount = Math.max(0, state.completedQuestCount + completedDelta);
-        console.log("[Quest] Quest after update:", JSON.stringify(state.quests[id]));
       }
     });
   },
 
   assignQuestToAgents: (questId, agentIds) => {
-    console.log("[Quest] assignQuestToAgents called:", { questId, agentIds });
-    const quest = get().quests[questId];
-    console.log("[Quest] Current quest state before update:", quest);
     get().updateQuest(questId, {
       assignedAgentIds: agentIds,
       status: "in_progress",
     });
-    console.log("[Quest] Quest state after update:", get().quests[questId]);
   },
 
   completeQuest: (id) => {
-    console.log("[Quest] completeQuest called:", id);
     get().updateQuest(id, { status: "completed" });
-    console.log("[Quest] Quest completed:", get().quests[id]);
+
+    // Check if this quest is part of a questline and advance it
+    const quest = get().quests[id];
+    if (quest?.questlineId) {
+      get().advanceQuestline(quest.questlineId);
+    }
   },
 
-  // Questlines
+  // Questline Actions
   addQuestline: (questline) => {
     const id = uuidv4();
     const newQuestline: Questline = { ...questline, id };
@@ -685,18 +952,43 @@ export const useGameStore = create<GameStore>()(
   },
 
   startQuestline: (id) => {
-    get().updateQuestline(id, { status: "in_progress", currentQuestIndex: 0 });
-    get().setActiveQuestline(id);
+    set((state) => {
+      const questline = state.questlines[id];
+      if (questline && questline.status === "not_started") {
+        state.questlines[id].status = "in_progress";
+
+        // Activate the first quest in the questline
+        const firstQuestId = questline.questIds[0];
+        if (firstQuestId && state.quests[firstQuestId]) {
+          state.quests[firstQuestId].status = "in_progress";
+        }
+      }
+    });
   },
 
   advanceQuestline: (questlineId) => {
     set((state) => {
       const questline = state.questlines[questlineId];
-      if (questline && questline.currentQuestIndex < questline.questIds.length - 1) {
-        questline.currentQuestIndex = questline.currentQuestIndex + 1;
-        // Check if questline is complete
-        if (questline.currentQuestIndex >= questline.requiredCompletedQuests) {
-          questline.status = "completed";
+      if (!questline || questline.status !== "in_progress") return;
+
+      // Check if current quest is completed
+      const currentQuestId = questline.questIds[questline.currentQuestIndex];
+      const currentQuest = state.quests[currentQuestId];
+
+      if (currentQuest?.status === "completed") {
+        // Move to next quest if available
+        const nextIndex = questline.currentQuestIndex + 1;
+        if (nextIndex < questline.questIds.length) {
+          const nextQuestId = questline.questIds[nextIndex];
+          state.questlines[questlineId].currentQuestIndex = nextIndex;
+
+          // Activate next quest
+          if (state.quests[nextQuestId]) {
+            state.quests[nextQuestId].status = "in_progress";
+          }
+        } else {
+          // All quests completed - mark questline as completed
+          state.questlines[questlineId].status = "completed";
         }
       }
     });
@@ -704,73 +996,6 @@ export const useGameStore = create<GameStore>()(
 
   setActiveQuestline: (questlineId) => {
     set({ activeQuestlineId: questlineId });
-  },
-
-  // Parties
-  createParty: (name: string, leaderId: string, memberIds: string[], formation: FormationType = "line") => {
-    const id = uuidv4();
-    const party: Party = {
-      id,
-      name,
-      leaderId,
-      memberIds: [leaderId, ...memberIds],
-      formation,
-      targetPosition: null,
-    };
-    set((state) => {
-      state.parties[id] = party;
-    });
-    return party;
-  },
-
-  disbandParty: (partyId: string) => {
-    set((state) => {
-      delete state.parties[partyId];
-    });
-  },
-
-  setPartyFormation: (partyId: string, formation: FormationType) => {
-    set((state) => {
-      const party = state.parties[partyId];
-      if (party) {
-        party.formation = formation;
-      }
-    });
-  },
-
-  setPartyLeader: (partyId: string, newLeaderId: string) => {
-    set((state) => {
-      const party = state.parties[partyId];
-      if (party) {
-        party.leaderId = newLeaderId;
-        // Ensure leader is in member list
-        if (!party.memberIds.includes(newLeaderId)) {
-          party.memberIds.unshift(newLeaderId);
-        }
-      }
-    });
-  },
-
-  moveParty: (partyId: string, targetPosition: [number, number, number]) => {
-    set((state) => {
-      const party = state.parties[partyId];
-      if (party) {
-        party.targetPosition = targetPosition;
-        // Update target positions for all party members based on formation
-        party.memberIds.forEach((memberId, index) => {
-          const agent = state.agents[memberId];
-          if (agent) {
-            // Simple offset based on formation and index
-            const offset = (index - party.memberIds.length / 2) * 2;
-            agent.targetPosition = [
-              targetPosition[0] + offset,
-              targetPosition[1],
-              targetPosition[2] + offset,
-            ] as [number, number, number];
-          }
-        });
-      }
-    });
   },
 
   // Camera Actions
@@ -885,12 +1110,15 @@ export const useGameStore = create<GameStore>()(
 // Selector Hooks
 // ============================================================================
 
+import { shallow } from "zustand/shallow";
+
 // Use cached count values - these are stable scalar values
 export const useAgentCount = () => useGameStore((state) => state.agentCount);
 export const useDragonCount = () => useGameStore((state) => state.dragonCount);
 export const useStructureCount = () => useGameStore((state) => state.structureCount);
 export const useQuestCount = () => useGameStore((state) => state.questCount);
 export const useCompletedQuestCount = () => useGameStore((state) => state.completedQuestCount);
+export const usePartyCount = () => useGameStore((state) => state.partyCount);
 
 // Single agent lookup
 export const useAgent = (id: string) =>
@@ -899,15 +1127,16 @@ export const useAgent = (id: string) =>
 // Selected agents - return Set and Map for stable reference
 export const useSelectedAgentIds = () => useGameStore((state) => state.selectedAgentIds);
 export const useAgentsMap = () => useGameStore((state) => state.agents);
+export const usePartiesMap = () => useGameStore((state) => state.parties);
 
 // These selectors use shallow comparison for the Map reference itself
 // Components should use useMemo to convert to arrays when needed
-export const useAgentsShallow = () => useGameStore((state) => state.agents);
-export const useDragonsShallow = () => useGameStore((state) => state.dragons);
-export const useStructuresShallow = () => useGameStore((state) => state.structures);
-export const useQuestsShallow = () => useGameStore((state) => state.quests);
-export const useTilesShallow = () => useGameStore((state) => state.tiles);
-export const usePartiesShallow = () => useGameStore((state) => state.parties);
+export const useAgentsShallow = () => useGameStore((state) => state.agents, shallow);
+export const useDragonsShallow = () => useGameStore((state) => state.dragons, shallow);
+export const useStructuresShallow = () => useGameStore((state) => state.structures, shallow);
+export const useQuestsShallow = () => useGameStore((state) => state.quests, shallow);
+export const useTilesShallow = () => useGameStore((state) => state.tiles, shallow);
+export const usePartiesShallow = () => useGameStore((state) => state.parties, shallow);
 
 // Selection Set
 export const useSelection = () => useGameStore((state) => state.selectedAgentIds);

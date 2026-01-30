@@ -1,20 +1,28 @@
 import { Suspense, useCallback, useEffect, useState, useRef } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
-import { Stars, Environment } from "@react-three/drei";
 import { useGame } from "./core/Game";
 import { CameraController } from "./core/CameraController";
 import { SelectionSystem } from "./core/SelectionSystem";
-import { WorldGrid, GroundPlane } from "./world/WorldManager";
+import { GroundPlane } from "./world/WorldManager";
 import { type Structure } from "./store/gameStore";
-import { Terrain } from "./world/Terrain";
 import { InitialAgents, useAgentPool } from "./entities/AgentPool";
 import { AgentPool } from "./entities/GameAgent";
-import { DragonPool } from "./entities/Dragon";
 import { StructurePool } from "./entities/Structure";
-import { ConnectionLines, ConnectionLegend } from "./entities/ConnectionLines";
+import { ConnectionLegend } from "./entities/ConnectionLines";
 import { HUD } from "./ui/HUD";
 import { useGameStore } from "./store/gameStore";
 import Landing from "./landing/Landing";
+import { AgentBridgeProvider } from "./bridge/AgentBridge";
+
+// ============================================================================
+// Simple Grid Component (optimized for performance)
+// ============================================================================
+
+function SimpleGrid() {
+  return (
+    <gridHelper args={[20, 20, "#444444", "#222222"]} position={[10, 0, 10]} />
+  );
+}
 
 // ============================================================================
 // Game Initialization (runs outside Canvas)
@@ -26,10 +34,10 @@ interface GameInitializerProps {
 
 function GameInitializer({ onReady }: GameInitializerProps) {
   useEffect(() => {
-    const { initializeWorld, addStructure } = useGameStore.getState();
+    const { initializeWorld, addStructure, addQuest, addQuestline } = useGameStore.getState();
 
-    // Initialize terrain
-    initializeWorld(50, 50);
+    // Initialize terrain with smaller grid for performance
+    initializeWorld(20, 20);
 
     // ============================================================================
     // Initialize Goal Structures - All 5 Types
@@ -38,48 +46,48 @@ function GameInitializer({ onReady }: GameInitializerProps) {
     // 1. BASE - Home base (fortified)
     addStructure({
       type: "base",
-      position: [25, 0, 25],
+      position: [10, 0, 10],
       name: "Command Center",
       description: "Agent spawn point and base of operations",
     });
 
     // 2. CASTLE - Main goals (large, impressive)
-    addStructure({
+    const knowledgeCastle = addStructure({
       type: "castle",
-      position: [40, 0, 10],
+      position: [15, 0, 5],
       name: "Knowledge Castle",
       description: "The ultimate goal - complete all research here",
       goalId: "main-goal-knowledge",
     });
 
     // 3. TOWER - Sub-goals (tall, watchtower style)
-    addStructure({
+    const scoutTower = addStructure({
       type: "tower",
-      position: [8, 0, 8],
+      position: [5, 0, 5],
       name: "Scout Tower",
       description: "Sub-goal: Establish reconnaissance",
       goalId: "sub-goal-scouting",
     });
 
-    addStructure({
+    const watchtower = addStructure({
       type: "tower",
-      position: [42, 0, 42],
+      position: [15, 0, 15],
       name: "Watchtower",
       description: "Sub-goal: Defend the perimeter",
       goalId: "sub-goal-defense",
     });
 
     // 4. WORKSHOP - Tasks (building with work areas)
-    addStructure({
+    const codeWorkshop = addStructure({
       type: "workshop",
-      position: [10, 0, 40],
+      position: [5, 0, 15],
       name: "Code Workshop",
       description: "Task: Craft agent solutions",
     });
 
-    addStructure({
+    const researchLab = addStructure({
       type: "workshop",
-      position: [40, 0, 40],
+      position: [15, 0, 15],
       name: "Research Lab",
       description: "Task: Analyze data patterns",
     });
@@ -87,61 +95,93 @@ function GameInitializer({ onReady }: GameInitializerProps) {
     // 5. CAMPFIRE - Gathering points (warm, inviting)
     addStructure({
       type: "campfire",
-      position: [25, 0, 15],
+      position: [10, 0, 8],
       name: "Strategy Circle",
       description: "Gathering point for agent coordination",
     });
 
     addStructure({
       type: "campfire",
-      position: [15, 0, 25],
+      position: [8, 0, 10],
       name: "Rest Camp",
       description: "Agent rest and recovery point",
     });
 
-    // 6. QUEST MARKERS - Random quests
-    addStructure({
-      type: "quest_marker",
-      position: [35, 0, 25],
-      name: "Directory Scout",
-      description: "List the contents of a directory",
-      goalId: "quest-list-directory",
-    });
+    // ============================================================================
+    // Initialize Questline - "The Agent's Journey"
+    // ============================================================================
 
-    // Add the associated quest
-    const { addQuest } = useGameStore.getState();
-    addQuest({
-      title: "Scout the Filesystem",
-      description: "List the contents of the current directory to discover what files exist.",
+    // Create quests for the questline
+    const quest1 = addQuest({
+      title: "Establish Reconnaissance",
+      description: "Send agents to the Scout Tower to gather intel on the surrounding area.",
       status: "pending",
-      targetStructureId: null,
-      requiredAgents: 1,
+      targetStructureId: scoutTower.id,
+      requiredAgents: 2,
       assignedAgentIds: [],
-      rewards: ["50 XP", "File Knowledge"],
-      taskType: "list_directory",
-      taskPath: ".",
+      rewards: ["+1 Agent Level", "Unlock: Workshop Access"],
     });
 
-    // 7. DUNGEON - Creative exploration quest
-    addStructure({
-      type: "quest_marker",
-      position: [12, 0, 38],
-      name: "The Dark Dungeon",
-      description: "A mysterious dungeon filled with secrets...",
-      goalId: "quest-dungeon-exploration",
-    });
-
-    addQuest({
-      title: "Explore the Dark Dungeon",
-      description: "Venture into the dungeon and write a tale of what you discover within its shadowy depths.",
+    const quest2 = addQuest({
+      title: "Craft Agent Solutions",
+      description: "Assign agents to the Code Workshop to develop new capabilities.",
       status: "pending",
-      targetStructureId: null,
-      requiredAgents: 1,
+      targetStructureId: codeWorkshop.id,
+      requiredAgents: 3,
       assignedAgentIds: [],
-      rewards: ["100 XP", "Dungeon Lore", "Creative Writing"],
-      taskType: "dungeon_explore",
-      taskPath: "dungeon",
+      rewards: ["+2 Agent Levels", "Unlock: Research Lab"],
+      prerequisiteQuestIds: [quest1.id],
     });
+
+    const quest3 = addQuest({
+      title: "Analyze Data Patterns",
+      description: "Deploy agents to the Research Lab to uncover hidden patterns.",
+      status: "pending",
+      targetStructureId: researchLab.id,
+      requiredAgents: 3,
+      assignedAgentIds: [],
+      rewards: ["+3 Agent Levels", "Unlock: Defense Protocols"],
+      prerequisiteQuestIds: [quest2.id],
+    });
+
+    const quest4 = addQuest({
+      title: "Defend the Perimeter",
+      description: "Station agents at the Watchtower to protect against incoming threats.",
+      status: "pending",
+      targetStructureId: watchtower.id,
+      requiredAgents: 4,
+      assignedAgentIds: [],
+      rewards: ["+4 Agent Levels", "Unlock: Castle Access"],
+      prerequisiteQuestIds: [quest3.id],
+    });
+
+    const quest5 = addQuest({
+      title: "Complete Research at Knowledge Castle",
+      description: "The ultimate goal - lead your agents to complete all research at the Knowledge Castle.",
+      status: "pending",
+      targetStructureId: knowledgeCastle.id,
+      requiredAgents: 5,
+      assignedAgentIds: [],
+      rewards: ["Victory!", "Empire Expanded"],
+      prerequisiteQuestIds: [quest4.id],
+    });
+
+    // Create the questline
+    addQuestline({
+      name: "The Agent's Journey",
+      description: "A comprehensive campaign to establish your agent empire and achieve ultimate knowledge.",
+      status: "not_started",
+      questIds: [quest1.id, quest2.id, quest3.id, quest4.id, quest5.id],
+      currentQuestIndex: 0,
+      requiredCompletedQuests: 5,
+    });
+
+    // Update quests with questline reference
+    useGameStore.getState().updateQuest(quest1.id, { questlineId: "the-agents-journey", position: 0 });
+    useGameStore.getState().updateQuest(quest2.id, { questlineId: "the-agents-journey", position: 1 });
+    useGameStore.getState().updateQuest(quest3.id, { questlineId: "the-agents-journey", position: 2 });
+    useGameStore.getState().updateQuest(quest4.id, { questlineId: "the-agents-journey", position: 3 });
+    useGameStore.getState().updateQuest(quest5.id, { questlineId: "the-agents-journey", position: 4 });
 
     onReady();
   }, [onReady]);
@@ -156,43 +196,51 @@ function GameInitializer({ onReady }: GameInitializerProps) {
 function Lighting() {
   return (
     <>
-      <ambientLight intensity={0.4} />
+      <ambientLight intensity={0.6} />
       <directionalLight
         position={[30, 50, 30]}
-        intensity={1}
-        castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-        shadow-camera-far={100}
-        shadow-camera-left={-30}
-        shadow-camera-right={30}
-        shadow-camera-top={30}
-        shadow-camera-bottom={-30}
-        shadow-bias={-0.0001}
+        intensity={0.8}
+        castShadow={false} // Disable shadows for performance
       />
       <directionalLight position={[-20, 30, -20]} intensity={0.3} />
-      <pointLight position={[0, 20, 0]} intensity={0.2} color="#f4d03f" distance={50} />
     </>
   );
 }
 
 // ============================================================================
 // WebGL Context Loss Handler
-// ============================================================================()
+// ============================================================================
 
 function ContextLossHandler() {
   const gl = useThree((state) => state.gl);
   const [, forceUpdate] = useState(0);
+  const contextLostRef = useRef(false);
 
   useEffect(() => {
     const handleContextLoss = (event: Event) => {
       event.preventDefault();
-      console.warn("[WebGL] Context lost - attempting recovery...");
+      contextLostRef.current = true;
+      // console.error("[WebGL] Context lost - attempting recovery...");
+
+      // Force stop the render loop to prevent further crashes
+      try {
+        gl.setAnimationLoop(null);
+      } catch (e) {
+        console.warn("[WebGL] Could not stop animation loop:", e);
+      }
     };
 
     const handleContextRestored = () => {
       console.log("[WebGL] Context restored - forcing re-render");
+      contextLostRef.current = false;
+
+      // Force re-render of all components
       forceUpdate((prev) => prev + 1);
+
+      // Restart any necessary systems
+      setTimeout(() => {
+        console.log("[WebGL] Recovery complete");
+      }, 100);
     };
 
     const canvas = gl.domElement;
@@ -210,7 +258,7 @@ function ContextLossHandler() {
 
 // ============================================================================
 // Game Loop Component (runs inside Canvas)
-// ============================================================================()
+// ============================================================================
 
 function GameLoop() {
   useGame(); // This must be inside Canvas
@@ -219,7 +267,7 @@ function GameLoop() {
 
 // ============================================================================
 // Game Scene Component (runs inside Canvas)
-// ============================================================================()
+// ============================================================================
 
 function GameScene() {
   useAgentPool();
@@ -260,7 +308,28 @@ function GameScene() {
     (position: [number, number, number]) => {
       const selectedAgents = Array.from(useGameStore.getState().selectedAgentIds);
       if (selectedAgents.length === 0) return;
-      moveAgentsToPosition(position, selectedAgents);
+
+      // Check if selected agents belong to a party
+      const parties = useGameStore.getState().parties;
+      let movedParty = false;
+
+      // Find parties that contain selected agents
+      for (const [partyId, party] of Object.entries(parties)) {
+        // Check if all selected agents are members of this party
+        const allMembersInParty = selectedAgents.every(id => party.memberIds.includes(id));
+
+        if (allMembersInParty && party.memberIds.length > 0) {
+          // Use party movement with formation
+          useGameStore.getState().moveParty(partyId, position);
+          movedParty = true;
+          break; // Only move one party at a time
+        }
+      }
+
+      // If no party was found, use regular movement
+      if (!movedParty) {
+        moveAgentsToPosition(position, selectedAgents);
+      }
     },
     [moveAgentsToPosition]
   );
@@ -316,23 +385,24 @@ function GameScene() {
   return (
     <>
       <Lighting />
-      <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
-      <Environment preset="sunset" />
+      {/* Temporarily disable expensive components */}
+      {/* <Stars radius={100} depth={50} count={1000} factor={4} saturation={0} fade speed={1} /> */}
+      {/* <Environment preset="sunset" /> */}
 
-      <Terrain />
-      <WorldGrid />
+      {/* <Terrain /> */}
+      <SimpleGrid /> {/* Optimized grid replacement */}
       <GroundPlane />
 
-      <InitialAgents count={2} />
+      <InitialAgents count={1} /> {/* Test with 1 agent */}
       <AgentPool onAgentClick={(agentId) => console.log("Agent clicked:", agentId)} />
 
-      <ConnectionLines enabled={true} maxConnections={100} />
+      {/* <ConnectionLines enabled={true} maxConnections={100} /> */}
 
-      <DragonPool />
+      {/* <DragonPool /> */}
       <StructurePool
         onStructureClick={handleStructureClick}
         onStructureRightClick={handleStructureRightClick}
-      />
+      /> {/* Re-enabling structures to test */}
 
       <SelectionSystem
         onAgentsSelected={(ids) => console.log("Selected:", ids)}
@@ -347,7 +417,7 @@ function GameScene() {
 
 // ============================================================================
 // Selection Box Overlay
-// ============================================================================()
+// ============================================================================
 
 function SelectionBoxOverlay() {
   const selectionBox = useGameStore((state) => state.selectionBox);
@@ -378,7 +448,7 @@ function SelectionBoxOverlay() {
 
 // ============================================================================
 // Loading Screen
-// ============================================================================()
+// ============================================================================
 
 function LoadingScreen() {
   return (
@@ -397,7 +467,7 @@ function LoadingScreen() {
 
 // ============================================================================
 // Main App Component
-// ============================================================================()
+// ============================================================================
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);
@@ -415,51 +485,52 @@ export default function App() {
   }
 
   return (
-    <div className="w-screen h-screen overflow-hidden bg-gray-900">
-      <Suspense fallback={<LoadingScreen />}>
-        {/* Initialize game state before Canvas - only show when not ready */}
-        {!isReady ? (
-          <>
-            <GameInitializer onReady={() => setIsReady(true)} />
-            <LoadingScreen />
-          </>
-        ) : (
-          <>
-            <Canvas
-              shadows
-              camera={{ position: [0, 30, 0], fov: 50 }}
-              gl={{
-                antialias: true,
-                alpha: false,
-                powerPreference: "high-performance",
-                failIfMajorPerformanceCaveat: false,
-                preserveDrawingBuffer: false,
-                desynchronized: true,
-                stencil: false,
-                depth: true,
-              }}
-              dpr={[1, 2]} // Limit pixel ratio for performance
-              frameloop="always" // Continuous rendering for game loop
-            >
-              <GameScene />
-              <CameraController />
-              <GameLoop /> {/* Game loop runs inside Canvas */}
-              <ContextLossHandler />
-            </Canvas>
+    <AgentBridgeProvider>
+      <div className="w-screen h-screen overflow-hidden bg-gray-900">
+        <Suspense fallback={<LoadingScreen />}>
+          {/* Initialize game state before Canvas - only show when not ready */}
+          {!isReady ? (
+            <>
+              <GameInitializer onReady={() => setIsReady(true)} />
+              <LoadingScreen />
+            </>
+          ) : (
+            <>
+              <Canvas
+                shadows={false} // Temporarily disable shadows for performance
+                camera={{ position: [0, 30, 0], fov: 50 }}
+                gl={{
+                  antialias: false, // Disable antialiasing to reduce GPU load
+                  alpha: false,
+                  powerPreference: "high-performance",
+                  failIfMajorPerformanceCaveat: false,
+                  preserveDrawingBuffer: true, // Enable for better context recovery
+                  stencil: false,
+                  depth: true,
+                }}
+                dpr={1} // Force DPR to 1 for better performance
+                frameloop="always" // Change to always for consistent rendering
+              >
+                <GameScene />
+                <CameraController />
+                <GameLoop /> {/* Game loop runs inside Canvas */}
+                <ContextLossHandler />
+              </Canvas>
 
-            <HUD />
-            <SelectionBoxOverlay />
-            <ConnectionLegend position="top-right" />
-          </>
-        )}
-      </Suspense>
-    </div>
+              <HUD />
+              <SelectionBoxOverlay />
+              <ConnectionLegend position="top-right" />
+            </>
+          )}
+        </Suspense>
+      </div>
+    </AgentBridgeProvider>
   );
 }
 
 // ============================================================================
 // Title Screen Component (for future use)
-// ============================================================================()
+// ============================================================================
 
 export function TitleScreen({ onStart }: { onStart: () => void }) {
   return (

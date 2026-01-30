@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useGameStore, type GameAgent } from "../store/gameStore";
+import { useAgentBridgeContext } from "../bridge/AgentBridge";
 
 // ============================================================================
 // Agent Pool Manager
@@ -122,14 +123,15 @@ interface InitialAgentsProps {
 
 export function InitialAgents({ count = 100 }: InitialAgentsProps) {
   const hasInitialized = useRef(false);
+  const { bridge, registerAgent } = useAgentBridgeContext();
+  const { spawnAgent } = useAgentPool();
 
   useEffect(() => {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
 
-    // Spawn initial agents in grid pattern for better distribution
     const store = useGameStore.getState();
-    const newAgents = store.spawnAgentBatch(count, [25, 0, 25], "grid");
+    const agentIds: string[] = [];
 
     // Add default tools to agents
     const defaultTools = [
@@ -138,51 +140,93 @@ export function InitialAgents({ count = 100 }: InitialAgentsProps) {
       { id: "code", name: "Code Executor", type: "code_executor" as const, icon: "🔨", description: "Execute code", rarity: "common" as const },
     ];
 
-    newAgents?.forEach((agent: GameAgent) => {
-      store.updateAgent(agent.id, {
-        inventory: [...defaultTools],
-        equippedTool: defaultTools[Math.floor(Math.random() * defaultTools.length)],
-      });
-    });
+    // Spawn initial agents with Deep Agent instances - with delay to prevent blocking
+    const spawnInitialAgents = async () => {
+      for (let i = 0; i < count; i++) {
+        // Add delay between spawns to prevent blocking and resource spikes
+        await new Promise(resolve => setTimeout(resolve, 100));
 
-    // Spawn some subagents to test parent-child connection lines
-    // Create 5 parent agents with subagents
-    if (newAgents && newAgents.length >= 10) {
-      const parentAgents = newAgents.slice(0, 5);
-      parentAgents.forEach((parent: GameAgent) => {
-        // Spawn 2 subagents per parent
-        for (let i = 0; i < 2; i++) {
-          const subagent = store.spawnAgent(
-            `${parent.name}-Sub-${i + 1}`,
-            [
-              parent.position[0] + (Math.random() - 0.5) * 3,
-              0,
-              parent.position[2] + (Math.random() - 0.5) * 3,
-            ],
-            null,
-            parent.id // This sets up parent-child relationship
-          );
-          if (subagent) {
-            store.updateAgent(subagent.id, {
-              inventory: [...defaultTools],
-              equippedTool: defaultTools[Math.floor(Math.random() * defaultTools.length)],
-            });
+        // Calculate grid position for better distribution
+        const gridSize = Math.ceil(Math.sqrt(count));
+        const spacing = 2;
+        const offset = (gridSize * spacing) / 2;
+        const row = Math.floor(i / gridSize);
+        const col = i % gridSize;
+        const position: [number, number, number] = [
+          25 + col * spacing - offset,
+          0,
+          25 + row * spacing - offset,
+        ];
+
+        try {
+          // Use spawnDeepAgent to create agents with Deep Agent instances
+          const agentId = await bridge.spawnDeepAgent({
+            name: DEFAULT_AGENTS[i % DEFAULT_AGENTS.length].name,
+          });
+          agentIds.push(agentId);
+
+          // Update agent position and add tools
+          store.updateAgent(agentId, {
+            position,
+            inventory: [...defaultTools],
+            equippedTool: defaultTools[Math.floor(Math.random() * defaultTools.length)],
+          });
+
+          // Get the agent to access its Deep Agent reference
+          const agent = store.agents[agentId];
+          if (agent && agent.agentRef) {
+            // Register agent for streaming
+            await registerAgent(agentId, agent.agentRef);
           }
+        } catch (error) {
+          console.error(`Failed to spawn agent ${i}:`, error);
         }
-      });
-    }
+      }
 
-    // Set some agents to WORKING state to test collaboration lines
-    if (newAgents && newAgents.length >= 20) {
-      // Set agents 10-14 to WORKING state (they are near each other from grid pattern)
-      for (let i = 10; i < 15; i++) {
-        store.updateAgent(newAgents[i].id, {
-          state: "WORKING",
-          currentTask: "Collaborating on task...",
+      // Spawn some subagents to test parent-child connection lines
+      // Create 5 parent agents with subagents
+      if (agentIds.length >= 10) {
+        const parentAgentIds = agentIds.slice(0, 5);
+        parentAgentIds.forEach((parentId) => {
+          const parent = store.agents[parentId];
+          if (!parent) return;
+
+          // Spawn 2 subagents per parent
+          for (let i = 0; i < 2; i++) {
+            const subagent = spawnAgent(
+              `${parent.name}-Sub-${i + 1}`,
+              [
+                parent.position[0] + (Math.random() - 0.5) * 3,
+                0,
+                parent.position[2] + (Math.random() - 0.5) * 3,
+              ],
+              null,
+              parentId // This sets up parent-child relationship
+            );
+            if (subagent) {
+              store.updateAgent(subagent.id, {
+                inventory: [...defaultTools],
+                equippedTool: defaultTools[Math.floor(Math.random() * defaultTools.length)],
+              });
+            }
+          }
         });
       }
-    }
-  }, [count]);
+
+      // Set some agents to WORKING state to test collaboration lines
+      if (agentIds.length >= 20) {
+        // Set agents 10-14 to WORKING state (they are near each other from grid pattern)
+        for (let i = 10; i < 15; i++) {
+          store.updateAgent(agentIds[i], {
+            state: "WORKING",
+            currentTask: "Collaborating on task...",
+          });
+        }
+      }
+    };
+
+    spawnInitialAgents();
+  }, [count, bridge, registerAgent, spawnAgent]);
 
   return null;
 }

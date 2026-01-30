@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, createContext, useContext } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { useGameStore, type AgentState, type DragonType } from "../store/gameStore";
-import { createDeepAgent, type DeepAgent } from "deepagents";
-import { tool } from "langchain";
-import { z } from "zod";
-import { ChatOpenAI } from "@langchain/openai";
+// LangChain cannot be used in browser - using mock implementation
+// import { createDeepAgent, type DeepAgent } from "deepagents";
+// import { tool } from "langchain";
+// import { ChatOpenAI } from "@langchain/openai";
 
 // ============================================================================
 // Types
@@ -15,6 +15,15 @@ export interface AgentConfig {
   model?: string;
   tools?: any[];
   systemPrompt?: string;
+}
+
+export interface MockDeepAgent {
+  id: string;
+  name: string;
+  stream: () => AsyncIterable<AgentEvent>;
+  graph?: {
+    stream: () => AsyncIterable<any>;
+  };
 }
 
 export interface AgentEvent {
@@ -75,35 +84,8 @@ export function useAgentBridge() {
   const updateAgent = useGameStore((state) => state.updateAgent);
   const setAgentState = useGameStore((state) => state.setAgentState);
   const setThoughtBubble = useGameStore((state) => state.setThoughtBubble);
+  const setSpeechBubble = useGameStore((state) => state.setSpeechBubble);
   const spawnDragon = useGameStore((state) => state.spawnDragon);
-
-  // Define default tools for agents
-  const searchTool = tool(
-    async ({ query }: { query: string }) => {
-      return `Searching for "${query}"...`;
-    },
-    {
-      name: "search",
-      description: "Search for information",
-      schema: z.object({
-        query: z.string().describe("The search query"),
-      }),
-    }
-  );
-
-  const writeFileTool = tool(
-    async ({ path }: { path: string; content: string }) => {
-      return `Writing to ${path}...`;
-    },
-    {
-      name: "write_file",
-      description: "Write content to a file",
-      schema: z.object({
-        path: z.string().describe("The file path"),
-        content: z.string().describe("The file content"),
-      }),
-    }
-  );
 
   // Spawn a new Deep Agent and create visual representation
   const spawnDeepAgent = useCallback(
@@ -114,29 +96,20 @@ export function useAgentBridge() {
       // Spawn visual agent
       const gameAgent = spawnAgent(name, [25 + Math.random() * 5, 0, 25 + Math.random() * 5]);
 
-      // Create real Deep Agent instance
-      const deepAgent = createDeepAgent({
-        model: new ChatOpenAI({
-          modelName: "gpt-4o-mini",
-          temperature: 0,
-        }),
-        tools: [searchTool, writeFileTool],
-        systemPrompt: config.systemPrompt || `You are ${name}, a strategic agent in Agents of Empire game.
-Your role is to:
-1. Analyze objectives given by the player
-2. Execute tasks efficiently
-3. Report back with clear results
+      // NOTE: LangChain/OpenAI cannot run in browser due to Node.js dependencies
+      // Using mock agent for demonstration. To use real agents:
+      // 1. Create a backend API server
+      // 2. Move createDeepAgent logic to the server
+      // 3. Have frontend communicate via fetch/WebSocket
+      const mockAgentRef = {
+        id: agentId,
+        name,
+        stream: async () => createMockAgentStream(agentId),
+      };
 
-When given a task:
-- Break it down into clear steps
-- Execute each step methodically
-- Provide status updates`,
-        subagents: [],
-      });
-
-      // Store Deep Agent reference
+      // Store mock agent reference
       updateAgent(gameAgent.id, {
-        agentRef: deepAgent,
+        agentRef: mockAgentRef as any,
       });
 
       return gameAgent.id;
@@ -227,12 +200,83 @@ When given a task:
     [spawnAgent]
   );
 
+  // Handle agent communication - COORD-004
+  const handleAgentCommunication = useCallback(
+    (fromAgentId: string, toAgentId: string, message: string) => {
+      // Show speech bubble on the speaking agent
+      setSpeechBubble(fromAgentId, message, toAgentId, 4000);
+
+      // If the target agent is nearby, they might respond
+      const agents = useGameStore.getState().agents;
+      const fromAgent = agents[fromAgentId];
+      const toAgent = agents[toAgentId];
+
+      if (fromAgent && toAgent) {
+        const distance = Math.sqrt(
+          Math.pow(fromAgent.position[0] - toAgent.position[0], 2) +
+          Math.pow(fromAgent.position[2] - toAgent.position[2], 2)
+        );
+
+        // If agents are close, trigger a response after a delay
+        if (distance < 10) {
+          setTimeout(() => {
+            const responses = [
+              "Got it!",
+              "On my way!",
+              "Thanks!",
+              "Understood!",
+              "Copy that!",
+            ];
+            const response = responses[Math.floor(Math.random() * responses.length)];
+            setSpeechBubble(toAgentId, response, fromAgentId, 3000);
+          }, 1000 + Math.random() * 2000);
+        }
+      }
+    },
+    [setSpeechBubble]
+  );
+
+  // Broadcast message to all party members - COORD-004
+  const broadcastToParty = useCallback(
+    (agentId: string, message: string) => {
+      const agents = useGameStore.getState().agents;
+      const agent = agents[agentId];
+      if (!agent?.partyId) return;
+
+      const parties = useGameStore.getState().parties;
+      const party = parties[agent.partyId];
+      if (!party) return;
+
+      // Show speech bubble on the speaking agent
+      setSpeechBubble(agentId, `📢 ${message}`, undefined, 4000);
+
+      // Respond after delay
+      setTimeout(() => {
+        party.memberIds.forEach((memberId) => {
+          if (memberId !== agentId) {
+            const acknowledgments = [
+              "👍",
+              "✅",
+              "On it!",
+              "Roger!",
+            ];
+            const ack = acknowledgments[Math.floor(Math.random() * acknowledgments.length)];
+            setSpeechBubble(memberId, ack, undefined, 2000);
+          }
+        });
+      }, 500 + Math.random() * 1000);
+    },
+    [setSpeechBubble]
+  );
+
   return {
     spawnDeepAgent,
     syncVisualState,
     handleToolCall,
     handleError,
     handleSubagentSpawn,
+    handleAgentCommunication,
+    broadcastToParty,
   };
 }
 
@@ -313,13 +357,10 @@ export function AgentBridgeProvider({ children }: AgentBridgeProviderProps) {
 
   // Register an agent for streaming
   const registerAgent = useCallback(
-    (agentId: string, _deepAgent: DeepAgent) => {
-      // Note: Deep Agents don't have a stream() method by default
-      // The invoke() method returns an async result, not a stream
-      // For now, we'll use mock events for visualization
-      // In the future, this should be updated to use real LangGraph streaming
-
-      const mockStream = createMockAgentStream(agentId);
+    async (_agentId: string, _deepAgent: MockDeepAgent) => {
+      // NOTE: Using mock stream for browser compatibility
+      // In production, this would connect to a backend API
+      const mockStream = createMockAgentStream(_agentId);
 
       const { cancel } = processAgentStream(mockStream, {
         agentId,
@@ -391,7 +432,7 @@ export function AgentBridgeProvider({ children }: AgentBridgeProviderProps) {
 // ============================================================================
 
 interface AgentBridgeContextValue {
-  registerAgent: (agentId: string, deepAgent: DeepAgent) => void;
+  registerAgent: (agentId: string, deepAgent: MockDeepAgent) => Promise<void>;
   unregisterAgent: (agentId: string) => void;
   bridge: ReturnType<typeof useAgentBridge>;
 }

@@ -2,6 +2,7 @@ import { useRef, useCallback, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Vector3 } from "three";
 import { useGameStore, useAgentsShallow, useDragonsShallow, useQuestsShallow, useTilesShallow, type AgentState, type GameAgent, type Dragon, type Quest } from "../store/gameStore";
+import { useCombat } from "../entities/Dragon";
 import { findPath } from "../world/WorldManager";
 
 // ============================================================================
@@ -15,7 +16,7 @@ export interface GameConfig {
 }
 
 const DEFAULT_CONFIG: GameConfig = {
-  tickRate: 60,
+  tickRate: 30, // Reduced from 60 to 30 for better performance
   autoSave: false,
   debugMode: false,
 };
@@ -46,10 +47,57 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
   // This prevents infinite re-renders inside Canvas
   const updateAgent = useGameStore((state) => state.updateAgent);
   const updateDragon = useGameStore((state) => state.updateDragon);
-  const setAgentPath = useGameStore((state) => state.setAgentPath);
+  const { callForReinforcements } = useCombat();
 
-  // Move agent towards target using pathfinding
+  // Track agents that have already called for reinforcements to avoid spam
+  const reinforcementCallers = useRef<Set<string>>(new Set());
+
+  // Game tick - runs every frame at tick rate
+  useFrame((_, delta) => {
+    const now = performance.now();
+
+    // Cap delta to prevent spiraling after lag
+    const cappedDelta = Math.min(delta, 0.1);
+    tickAccumulator.current += cappedDelta * 1000;
+
+    // Process ticks with limit to prevent long-running frames
+    let ticksProcessed = 0;
+    const maxTicksPerFrame = 3; // Limit ticks per frame for stability
+
+    while (tickAccumulator.current >= tickInterval && ticksProcessed < maxTicksPerFrame) {
+      tickAccumulator.current -= tickInterval;
+      gameTick(now);
+      ticksProcessed++;
+    }
+  });
+
+  // Single game tick
+  const gameTick = useCallback((now: number) => {
+    // Use getState() to get current values without subscribing
+    const agents = useGameStore.getState().agents;
+    const dragons = useGameStore.getState().dragons;
+
+    // Update agent positions
+    for (const id in agents) {
+      const agent = agents[id];
+      if (agent.targetPosition) {
+        moveAgentTowardsTarget(agent, now);
+      }
+
+      // Update agent state timers
+      updateAgentState(agent, now);
+    }
+
+    // Update dragon AI
+    for (const id in dragons) {
+      const dragon = dragons[id];
+      updateDragonAI(dragon, now);
+    }
+  }, []);
+
+  // Move agent towards target
   const moveAgentTowardsTarget = useCallback((agent: GameAgent, now: number, delta: number) => {
+  // Move agent towards target using pathfinding
     const speed = 5; // units per second
     const current = new Vector3(...agent.position);
     const target = new Vector3(...agent.targetPosition);
@@ -173,13 +221,43 @@ export function useGame(config: GameConfig = DEFAULT_CONFIG) {
 
       case "ERROR":
         // Stay in error state until player intervenes
+        // Clear reinforcement flag when agent is defeated
+        reinforcementCallers.current.delete(agent.id);
+        break;
+
+      case "IDLE":
+        // Clear reinforcement flag when agent leaves combat
+        reinforcementCallers.current.delete(agent.id);
         break;
 
       case "IDLE":
         break;
 
       case "COMBAT":
-        // Combat is handled by combat system
+        // Check if agent needs reinforcements
+        if (agent.health < agent.maxHealth * 0.4 && !reinforcementCallers.current.has(agent.id)) {
+          // Agent is below 40% health - call for reinforcements!
+          reinforcementCallers.current.add(agent.id);
+
+          // Find the dragon this agent is fighting
+          const dragons = useGameStore.getState().dragons;
+          const nearbyDragon = Object.values(dragons).find((dragon) => {
+            const agentPos = new Vector3(...agent.position);
+            const dragonPos = new Vector3(...dragon.position);
+            return agentPos.distanceTo(dragonPos) < 10;
+          });
+
+          if (nearbyDragon) {
+            const reinforced = callForReinforcements(agent.id, nearbyDragon.id, 20);
+
+            // Update agent's task to show reinforcement call
+            if (reinforced.length > 0) {
+              updateAgent(agent.id, {
+                currentTask: `Called ${reinforced.length} reinforcements!`,
+              });
+            }
+          }
+        }
         break;
     }
   }, []);

@@ -4,6 +4,7 @@ import { Group, Color } from "three";
 import { Text } from "@react-three/drei";
 import { useGameStore, useStructuresShallow, type Structure as StructureType } from "../store/gameStore";
 import { shallow } from "zustand/shallow";
+import { Object3DTooltip, StructureTooltipContent } from "../ui/Object3DTooltip";
 
 // ============================================================================
 // Structure Visual Configurations
@@ -66,10 +67,23 @@ export function StructureVisual({
   const groupRef = useRef<Group>(null);
   const config = STRUCTURE_CONFIG[structure.type];
   const [pulseScale, setPulseScale] = useState(1);
+  const agents = useGameStore((state) => state.agents);
 
-  // Animate certain structures
+  // Count assigned agents
+  const assignedAgentCount = useMemo(() => {
+    return Object.values(agents).filter(agent => agent.currentQuest === structure.id).length;
+  }, [agents, structure.id]);
+
+  // Animate certain structures (with throttling for performance)
+  const lastAnimationUpdate = useRef(0);
   useFrame((state) => {
     if (!groupRef.current) return;
+
+    const now = performance.now();
+
+    // Throttle animation updates to every 50ms
+    if (now - lastAnimationUpdate.current < 50) return;
+    lastAnimationUpdate.current = now;
 
     const time = state.clock.elapsedTime;
 
@@ -144,8 +158,8 @@ export function StructureVisual({
         {structure.type === "quest_marker" && <QuestMarkerMesh />}
       </group>
 
-      {/* Name label */}
-      <Text
+      {/* Name label - DISABLED FOR PERFORMANCE */}
+      {/* <Text
         position={[0, 3, 0]}
         fontSize={0.3}
         color="#f4d03f"
@@ -155,10 +169,10 @@ export function StructureVisual({
         outlineColor="#000000"
       >
         {structure.name}
-      </Text>
+      </Text> */}
 
-      {/* Assignment indicator when agents can be assigned */}
-      {hasSelectedAgents && !isHovered && (
+      {/* Assignment indicator when agents can be assigned - DISABLED FOR PERFORMANCE */}
+      {/* {hasSelectedAgents && !isHovered && (
         <Text
           position={[0, 3.7, 0]}
           fontSize={0.2}
@@ -179,9 +193,23 @@ export function StructureVisual({
             <sphereGeometry args={[0.3, 8, 8]} />
             <meshBasicMaterial color="#f4d03f" />
           </mesh>
-          <pointLight color="#f4d03f" intensity={2} distance={5} />
+          {/* <pointLight color="#f4d03f" intensity={2} distance={5} /> */} {/* Disabled for performance */}
         </group>
       )}
+
+      {/* Tooltip on hover - ENABLED with LOD optimization */}
+      <Object3DTooltip
+        position={structure.position}
+        visible={isHovered}
+        minDistance={60} // Only show when camera is within 60 units
+      >
+        <StructureTooltipContent
+          name={structure.name}
+          type={structure.type}
+          description={structure.description}
+          assignedAgents={assignedAgentCount}
+        />
+      </Object3DTooltip>
     </group>
   );
 }

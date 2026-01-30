@@ -769,7 +769,69 @@ function handleStreamEvent(event: StreamEvent) {
 - [x] Dragon appears → Agent enters combat stance (COMB-001)
 - [x] Battle plays out → Health bars change (COMB-001)
 - [x] Victory → Dragon defeated, loot appears (COMB-001 - XP granted)
-- [ ] Goal complete → Progress bar fills, celebration effects
+- [x] Goals chain into questlines with automatic progression (GOAL-006)
+
+### Questline System Implementation (GOAL-006) - Completed 2025-01-28
+
+**Files:**
+- `src/store/gameStore.ts` - Questline types, state, and actions
+- `src/ui/HUD.tsx` - Enhanced QuestTracker with questline visualization
+- `src/App.tsx` - Sample "The Agent's Journey" questline initialization
+
+**Features Implemented:**
+1. **Questline Data Structure:**
+   - `Questline` interface with id, name, description, status
+   - Ordered quest array with current quest index tracking
+   - Quest status: "not_started" | "in_progress" | "completed" | "failed"
+   - Quest prerequisite system for dependencies
+
+2. **Quest Enhancement:**
+   - Added `questlineId` field to link quests to questlines
+   - Added `prerequisiteQuestIds` for quest dependencies
+   - Added `position` field for quest ordering
+   - Automatic quest advancement on completion
+
+3. **Questline Actions:**
+   - `addQuestline()` - Create new questline
+   - `startQuestline()` - Activate questline and first quest
+   - `advanceQuestline()` - Auto-progress when quest completes
+   - `updateQuestline()` - Modify questline state
+   - `setActiveQuestline()` - Set active questline for UI
+
+4. **Enhanced QuestTracker UI:**
+   - Questline cards with name, description, and status badges
+   - Visual progress bar showing completed/total quests
+   - Current objective display with quest details
+   - Quest chain visualization (numbered circles connected by lines)
+   - Color-coded status indicators (green=completed, gold=active, gray=pending)
+   - "Start Questline" button for not_started questlines
+   - Standalone quests shown in "SIDE QUESTS" section
+
+5. **Automatic Progression:**
+   - When quest completes, automatically advances questline to next quest
+   - Activates next quest in sequence
+   - Marks questline as completed when all quests finished
+   - Smooth progress bar animations
+
+6. **Debug Controls:**
+   - `Shift+S` - Start first questline
+   - `Shift+C` - Complete current active quest (for testing progression)
+
+7. **Sample Questline - "The Agent's Journey":**
+   - Quest 1: Establish Reconnaissance (Scout Tower)
+   - Quest 2: Craft Agent Solutions (Code Workshop)
+   - Quest 3: Analyze Data Patterns (Research Lab)
+   - Quest 4: Defend the Perimeter (Watchtower)
+   - Quest 5: Complete Research at Knowledge Castle (final goal)
+
+8. **Acceptance Criteria Met:**
+   - Goals chain into sequential questlines - PASS (questline system with ordered quests)
+   - Quest dependencies enforced - PASS (prerequisiteQuestIds field)
+   - Visual quest progression - PASS (progress bar, chain visualization, numbered circles)
+   - Automatic advancement - PASS (advanceQuestline auto-progresses on quest completion)
+   - Quest completion celebration - PASS (status badges, progress animations, chain fills)
+   - Multiple questlines supported - PASS (questlines Record in state)
+   - Standalone quests supported - PASS (quests without questlineId shown separately)
 
 ### Phase 5 Completion
 - [ ] 100+ agents on screen → 60 FPS maintained

@@ -32,6 +32,29 @@ The Agents of Empire game features a professional RTS-style isometric camera wit
 #### Zoom
 - **Mouse Wheel**: Zoom in/out
 
+### Game Controls
+
+#### Unit Controls
+- **Left Click**: Select agent
+- **Drag Box**: Select multiple agents
+- **Right Click (Ground)**: Move selected agents
+- **Right Click (Agent)**: Open context menu
+- **Right Click (Structure)**: Assign selected agents to goal
+
+#### Questline & Debug Shortcuts
+- **Shift + S**: Start first questline
+- **Shift + C**: Complete current active quest (testing)
+- **Shift + D**: Spawn test dragon (testing)
+
+#### Context Menu Actions
+- **Open Inventory**: View agent's tools
+- **Hold Position**: Agent stays in place
+- **Return to Base**: Agent moves to command center
+- **Create Party**: Form squad with selected agents
+- **Attack**: Manual combat with nearby dragon
+- **Auto-Battle**: Auto-resolve combat
+- **Reinforce**: Call nearby agents for help
+
 ### Camera State (Zustand Store)
 
 ```typescript
