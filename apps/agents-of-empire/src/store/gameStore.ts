@@ -47,6 +47,8 @@ export interface GameAgent {
   thinkStart?: number | null;
   workStart?: number | null;
   completeStart?: number | null;
+  currentPath: [number, number][] | null; // Path for agent movement
+  pathIndex: number; // Current index in the path
 }
 
 export type DragonType = "SYNTAX" | "RUNTIME" | "NETWORK" | "PERMISSION" | "UNKNOWN";
@@ -86,7 +88,7 @@ export interface Quest {
   questlineId?: string; // Reference to parent questline
   prerequisiteQuestIds?: string[]; // Quests that must be completed first
   position?: number; // Position within questline sequence
-  taskType?: "list_directory" | "read_file" | "custom"; // Type of task to execute
+  taskType?: "list_directory" | "read_file" | "custom" | "dungeon_explore"; // Type of task to execute
   taskPath?: string; // Path for file operations
   logs?: string; // Output logs from completed task
 }
@@ -110,6 +112,17 @@ export interface Tile {
   z: number;
   type: TileType;
   walkable: boolean;
+}
+
+export type FormationType = "line" | "column" | "wedge" | "square" | "circle";
+
+export interface Party {
+  id: string;
+  name: string;
+  leaderId: string;
+  memberIds: string[];
+  formation: FormationType;
+  targetPosition: [number, number, number] | null;
 }
 
 // ============================================================================
@@ -142,6 +155,9 @@ interface GameState {
   // Questlines
   questlines: Record<string, Questline>;
   activeQuestlineId: string | null;
+
+  // Parties
+  parties: Record<string, Party>;
 
   // Camera
   cameraPosition: { x: number; y: number; z: number };
@@ -290,6 +306,7 @@ export const useGameStore = create<GameStore>()(
     completedQuestCount: 0,
     questlines: {},
     activeQuestlineId: null,
+    parties: {},
     cameraPosition: { x: 25, y: 30, z: 25 },
     cameraTarget: { x: 0, y: 0, z: 0 },
     zoom: 1,
@@ -316,7 +333,7 @@ export const useGameStore = create<GameStore>()(
       for (let x = 0; x < width; x++) {
         for (let z = 0; z < height; z++) {
           const key = `${x},${z}`;
-          const type: TileType = Math.random() < 0.05 ? "stone" : "grass";
+          const type = Math.random() < 0.05 ? "stone" : "grass" as TileType;
           state.tiles[key] = { x, z, type, walkable: type !== "water" };
         }
       }
@@ -648,6 +665,114 @@ export const useGameStore = create<GameStore>()(
     console.log("[Quest] Quest completed:", get().quests[id]);
   },
 
+  // Questlines
+  addQuestline: (questline) => {
+    const id = uuidv4();
+    const newQuestline: Questline = { ...questline, id };
+    set((state) => {
+      state.questlines[id] = newQuestline;
+    });
+    return newQuestline;
+  },
+
+  updateQuestline: (id, updates) => {
+    set((state) => {
+      const questline = state.questlines[id];
+      if (questline) {
+        Object.assign(state.questlines[id], updates);
+      }
+    });
+  },
+
+  startQuestline: (id) => {
+    get().updateQuestline(id, { status: "in_progress", currentQuestIndex: 0 });
+    get().setActiveQuestline(id);
+  },
+
+  advanceQuestline: (questlineId) => {
+    set((state) => {
+      const questline = state.questlines[questlineId];
+      if (questline && questline.currentQuestIndex < questline.questIds.length - 1) {
+        questline.currentQuestIndex = questline.currentQuestIndex + 1;
+        // Check if questline is complete
+        if (questline.currentQuestIndex >= questline.requiredCompletedQuests) {
+          questline.status = "completed";
+        }
+      }
+    });
+  },
+
+  setActiveQuestline: (questlineId) => {
+    set({ activeQuestlineId: questlineId });
+  },
+
+  // Parties
+  createParty: (name: string, leaderId: string, memberIds: string[], formation: FormationType = "line") => {
+    const id = uuidv4();
+    const party: Party = {
+      id,
+      name,
+      leaderId,
+      memberIds: [leaderId, ...memberIds],
+      formation,
+      targetPosition: null,
+    };
+    set((state) => {
+      state.parties[id] = party;
+    });
+    return party;
+  },
+
+  disbandParty: (partyId: string) => {
+    set((state) => {
+      delete state.parties[partyId];
+    });
+  },
+
+  setPartyFormation: (partyId: string, formation: FormationType) => {
+    set((state) => {
+      const party = state.parties[partyId];
+      if (party) {
+        party.formation = formation;
+      }
+    });
+  },
+
+  setPartyLeader: (partyId: string, newLeaderId: string) => {
+    set((state) => {
+      const party = state.parties[partyId];
+      if (party) {
+        party.leaderId = newLeaderId;
+        // Ensure leader is in member list
+        if (!party.memberIds.includes(newLeaderId)) {
+          party.memberIds.unshift(newLeaderId);
+        }
+      }
+    });
+  },
+
+  moveParty: (partyId: string, targetPosition: [number, number, number]) => {
+    set((state) => {
+      const party = state.parties[partyId];
+      if (party) {
+        party.targetPosition = targetPosition;
+        // Update target positions for all party members based on formation
+        party.memberIds.forEach((memberId, index) => {
+          const agent = state.agents[memberId];
+          if (agent) {
+            // Simple offset based on formation and index
+            const offset = (index - party.memberIds.length / 2) * 2;
+            agent.targetPosition = [
+              targetPosition[0] + offset,
+              targetPosition[1],
+              targetPosition[2] + offset,
+            ] as [number, number, number];
+          }
+        });
+      }
+    });
+  },
+
   // Camera Actions
   setCameraPosition: (position) => {
     set({ cameraPosition: position });
@@ -760,8 +885,6 @@ export const useGameStore = create<GameStore>()(
 // Selector Hooks
 // ============================================================================
 
-import { shallow } from "zustand/shallow";
-
 // Use cached count values - these are stable scalar values
 export const useAgentCount = () => useGameStore((state) => state.agentCount);
 export const useDragonCount = () => useGameStore((state) => state.dragonCount);
@@ -771,7 +894,7 @@ export const useCompletedQuestCount = () => useGameStore((state) => state.comple
 
 // Single agent lookup
 export const useAgent = (id: string) =>
-  useGameStore((state) => state.agents.get(id));
+  useGameStore((state) => state.agents[id]);
 
 // Selected agents - return Set and Map for stable reference
 export const useSelectedAgentIds = () => useGameStore((state) => state.selectedAgentIds);
@@ -779,11 +902,12 @@ export const useAgentsMap = () => useGameStore((state) => state.agents);
 
 // These selectors use shallow comparison for the Map reference itself
 // Components should use useMemo to convert to arrays when needed
-export const useAgentsShallow = () => useGameStore((state) => state.agents, shallow);
-export const useDragonsShallow = () => useGameStore((state) => state.dragons, shallow);
-export const useStructuresShallow = () => useGameStore((state) => state.structures, shallow);
-export const useQuestsShallow = () => useGameStore((state) => state.quests, shallow);
-export const useTilesShallow = () => useGameStore((state) => state.tiles, shallow);
+export const useAgentsShallow = () => useGameStore((state) => state.agents);
+export const useDragonsShallow = () => useGameStore((state) => state.dragons);
+export const useStructuresShallow = () => useGameStore((state) => state.structures);
+export const useQuestsShallow = () => useGameStore((state) => state.quests);
+export const useTilesShallow = () => useGameStore((state) => state.tiles);
+export const usePartiesShallow = () => useGameStore((state) => state.parties);
 
 // Selection Set
 export const useSelection = () => useGameStore((state) => state.selectedAgentIds);
