@@ -49,6 +49,8 @@ export interface GameAgent {
   workStart?: number | null;
   completeStart?: number | null;
   partyId: string | null; // Party membership
+  currentPath: [number, number][] | null; // Pathfinding path
+  pathIndex: number; // Current index in path
 }
 
 export type DragonType = "SYNTAX" | "RUNTIME" | "NETWORK" | "PERMISSION" | "UNKNOWN";
@@ -494,6 +496,10 @@ export const useGameStore = create<GameStore>()(
 
   setAgentTarget: (id, target) => {
     get().updateAgent(id, { targetPosition: target });
+  },
+
+  setAgentPath: (id, path) => {
+    get().updateAgent(id, { currentPath: path, pathIndex: 0 });
   },
 
   equipTool: (agentId, tool) => {

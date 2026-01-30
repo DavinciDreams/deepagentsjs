@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useGameStore, type GameAgent } from "../store/gameStore";
-import { useAgentBridgeContext } from "../bridge/AgentBridge";
+import { useAgentBridge, processAgentStream } from "../bridge/AgentBridge";
 
 // ============================================================================
 // Agent Pool Manager
@@ -123,7 +123,8 @@ interface InitialAgentsProps {
 
 export function InitialAgents({ count = 100 }: InitialAgentsProps) {
   const hasInitialized = useRef(false);
-  const { bridge, registerAgent } = useAgentBridgeContext();
+  const activeStreams = useRef<Map<string, () => void>>(new Map());
+  const bridge = useAgentBridge();
   const { spawnAgent } = useAgentPool();
 
   useEffect(() => {
@@ -175,8 +176,42 @@ export function InitialAgents({ count = 100 }: InitialAgentsProps) {
           // Get the agent to access its Deep Agent reference
           const agent = store.agents[agentId];
           if (agent && agent.agentRef) {
-            // Register agent for streaming
-            await registerAgent(agentId, agent.agentRef);
+            // Register agent for streaming (inline - avoids context boundary issue with Canvas)
+            const deepAgent = agent.agentRef;
+            const streamProcessor = deepAgent.stream?.({ messages: [] });
+            if (streamProcessor) {
+              const { cancel } = processAgentStream(streamProcessor as AsyncIterable<any>, {
+                agentId,
+                onEvent: (event) => {
+                  bridge.syncVisualState(agentId, event);
+                  switch (event.type) {
+                    case "tool:call:start":
+                      bridge.handleToolCall(agentId, event.data?.tool || "tool", "start");
+                      break;
+                    case "tool:call:complete":
+                      bridge.handleToolCall(agentId, event.data?.tool || "tool", "complete");
+                      break;
+                    case "tool:call:error":
+                      bridge.handleToolCall(agentId, event.data?.tool || "tool", "error");
+                      bridge.handleError(agentId, event.data?.error || "Tool call failed");
+                      break;
+                    case "error:occurred":
+                      bridge.handleError(agentId, event.data?.error || "Unknown error");
+                      break;
+                    case "subagent:spawned":
+                      bridge.handleSubagentSpawn(agentId, event.data?.name || "Subagent");
+                      break;
+                  }
+                },
+                onComplete: () => {
+                  console.log(`Agent ${agentId} stream completed`);
+                },
+                onError: (error) => {
+                  bridge.handleError(agentId, error.message);
+                },
+              });
+              activeStreams.current.set(agentId, cancel);
+            }
           }
         } catch (error) {
           console.error(`Failed to spawn agent ${i}:`, error);
@@ -226,7 +261,17 @@ export function InitialAgents({ count = 100 }: InitialAgentsProps) {
     };
 
     spawnInitialAgents();
-  }, [count, bridge, registerAgent, spawnAgent]);
+  }, [count, bridge, spawnAgent]);
+
+  // Cleanup active streams on unmount
+  useEffect(() => {
+    return () => {
+      for (const cancel of activeStreams.current.values()) {
+        cancel();
+      }
+      activeStreams.current.clear();
+    };
+  }, []);
 
   return null;
 }
