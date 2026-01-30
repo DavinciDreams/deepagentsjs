@@ -1,0 +1,486 @@
+import { useCallback, useEffect, useRef, createContext, useContext } from "react";
+import { v4 as uuidv4 } from "uuid";
+import { useGameStore, type AgentState, type DragonType } from "../store/gameStore";
+// LangChain cannot be used in browser - using mock implementation
+// import { createDeepAgent, type DeepAgent } from "deepagents";
+// import { tool } from "langchain";
+// import { ChatOpenAI } from "@langchain/openai";
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface AgentConfig {
+  name?: string;
+  model?: string;
+  tools?: any[];
+  systemPrompt?: string;
+}
+
+export interface MockDeepAgent {
+  id: string;
+  name: string;
+  stream: () => AsyncIterable<AgentEvent>;
+  graph?: {
+    stream: () => AsyncIterable<any>;
+  };
+}
+
+export interface AgentEvent {
+  type: AgentEventType;
+  agentId: string;
+  timestamp: number;
+  data?: any;
+}
+
+export type AgentEventType =
+  | "agent:created"
+  | "agent:thinking"
+  | "agent:spoke"
+  | "tool:call:start"
+  | "tool:call:complete"
+  | "tool:call:error"
+  | "subagent:spawned"
+  | "file:written"
+  | "file:read"
+  | "error:occurred"
+  | "goal:completed"
+  | "agent:moving";
+
+// ============================================================================
+// Event Mappings
+// ============================================================================
+
+const EVENT_TO_STATE: Record<AgentEventType, AgentState> = {
+  "agent:created": "IDLE",
+  "agent:thinking": "THINKING",
+  "agent:spoke": "IDLE",
+  "tool:call:start": "WORKING",
+  "tool:call:complete": "IDLE",
+  "tool:call:error": "ERROR",
+  "subagent:spawned": "WORKING",
+  "file:written": "COMPLETING",
+  "file:read": "WORKING",
+  "error:occurred": "ERROR",
+  "goal:completed": "COMPLETING",
+  "agent:moving": "MOVING",
+};
+
+const ERROR_TO_DRAGON_TYPE = (error: string): DragonType => {
+  const lower = error.toLowerCase();
+  if (lower.includes("syntax") || lower.includes("parse")) return "SYNTAX";
+  if (lower.includes("network") || lower.includes("fetch") || lower.includes("connection")) return "NETWORK";
+  if (lower.includes("permission") || lower.includes("access") || lower.includes("auth")) return "PERMISSION";
+  if (lower.includes("runtime") || lower.includes("execution")) return "RUNTIME";
+  return "UNKNOWN";
+};
+
+// ============================================================================
+// Agent Bridge Hook
+// ============================================================================
+
+export function useAgentBridge() {
+  const spawnAgent = useGameStore((state) => state.spawnAgent);
+  const updateAgent = useGameStore((state) => state.updateAgent);
+  const setAgentState = useGameStore((state) => state.setAgentState);
+  const setThoughtBubble = useGameStore((state) => state.setThoughtBubble);
+  const setSpeechBubble = useGameStore((state) => state.setSpeechBubble);
+  const spawnDragon = useGameStore((state) => state.spawnDragon);
+
+  // Spawn a new Deep Agent and create visual representation
+  const spawnDeepAgent = useCallback(
+    async (config: AgentConfig = {}): Promise<string> => {
+      const agentId = uuidv4();
+      const name = config.name || `Agent-${agentId.slice(0, 6)}`;
+
+      // Spawn visual agent
+      const gameAgent = spawnAgent(name, [25 + Math.random() * 5, 0, 25 + Math.random() * 5]);
+
+      // NOTE: LangChain/OpenAI cannot run in browser due to Node.js dependencies
+      // Using mock agent for demonstration. To use real agents:
+      // 1. Create a backend API server
+      // 2. Move createDeepAgent logic to the server
+      // 3. Have frontend communicate via fetch/WebSocket
+      const mockAgentRef = {
+        id: agentId,
+        name,
+        stream: async () => createMockAgentStream(agentId),
+      };
+
+      // Store mock agent reference
+      updateAgent(gameAgent.id, {
+        agentRef: mockAgentRef as any,
+      });
+
+      return gameAgent.id;
+    },
+    [spawnAgent, updateAgent]
+  );
+
+  // Map agent state to visual state
+  const syncVisualState = useCallback(
+    (agentId: string, event: AgentEvent) => {
+      const targetState = EVENT_TO_STATE[event.type];
+      if (targetState) {
+        setAgentState(agentId, targetState);
+      }
+
+      // Set thought bubble for thinking
+      if (event.type === "agent:thinking" && event.data?.thought) {
+        setThoughtBubble(agentId, event.data.thought);
+      }
+
+      // Clear thought bubble after work completes
+      if (event.type === "tool:call:complete" || event.type === "goal:completed") {
+        setThoughtBubble(agentId, null);
+      }
+    },
+    [setAgentState, setThoughtBubble]
+  );
+
+  // Handle tool call visualization
+  const handleToolCall = useCallback(
+    (agentId: string, toolName: string, status: "start" | "complete" | "error") => {
+      if (status === "start") {
+        setThoughtBubble(agentId, `🔧 ${toolName}...`);
+      } else if (status === "complete") {
+        setThoughtBubble(agentId, `✅ ${toolName} done`);
+        setTimeout(() => setThoughtBubble(agentId, null), 2000);
+      } else if (status === "error") {
+        setThoughtBubble(agentId, `❌ ${toolName} failed`);
+      }
+    },
+    [setThoughtBubble]
+  );
+
+  // Handle error -> dragon spawn
+  const handleError = useCallback(
+    (agentId: string, error: string) => {
+      const agents = useGameStore.getState().agents;
+      const agent = agents[agentId];
+      if (!agent) return;
+
+      const dragonType = ERROR_TO_DRAGON_TYPE(error);
+      const dragon = spawnDragon(
+        dragonType,
+        [agent.position[0] + 2, 0, agent.position[2]] as [number, number, number],
+        error,
+        agentId
+      );
+
+      // Set agent to combat state
+      setAgentState(agentId, "COMBAT");
+
+      return dragon.id;
+    },
+    [spawnDragon, setAgentState]
+  );
+
+  // Handle subagent spawn
+  const handleSubagentSpawn = useCallback(
+    (parentAgentId: string, subagentName: string) => {
+      const agents = useGameStore.getState().agents;
+      const parent = agents[parentAgentId];
+      if (!parent) return;
+
+      // Spawn subagent visual near parent
+      const subagent = spawnAgent(
+        subagentName,
+        [
+          parent.position[0] + (Math.random() - 0.5) * 3,
+          0,
+          parent.position[2] + (Math.random() - 0.5) * 3,
+        ],
+        null,
+        parentAgentId
+      );
+
+      return subagent.id;
+    },
+    [spawnAgent]
+  );
+
+  // Handle agent communication - COORD-004
+  const handleAgentCommunication = useCallback(
+    (fromAgentId: string, toAgentId: string, message: string) => {
+      // Show speech bubble on the speaking agent
+      setSpeechBubble(fromAgentId, message, toAgentId, 4000);
+
+      // If the target agent is nearby, they might respond
+      const agents = useGameStore.getState().agents;
+      const fromAgent = agents[fromAgentId];
+      const toAgent = agents[toAgentId];
+
+      if (fromAgent && toAgent) {
+        const distance = Math.sqrt(
+          Math.pow(fromAgent.position[0] - toAgent.position[0], 2) +
+          Math.pow(fromAgent.position[2] - toAgent.position[2], 2)
+        );
+
+        // If agents are close, trigger a response after a delay
+        if (distance < 10) {
+          setTimeout(() => {
+            const responses = [
+              "Got it!",
+              "On my way!",
+              "Thanks!",
+              "Understood!",
+              "Copy that!",
+            ];
+            const response = responses[Math.floor(Math.random() * responses.length)];
+            setSpeechBubble(toAgentId, response, fromAgentId, 3000);
+          }, 1000 + Math.random() * 2000);
+        }
+      }
+    },
+    [setSpeechBubble]
+  );
+
+  // Broadcast message to all party members - COORD-004
+  const broadcastToParty = useCallback(
+    (agentId: string, message: string) => {
+      const agents = useGameStore.getState().agents;
+      const agent = agents[agentId];
+      if (!agent?.partyId) return;
+
+      const parties = useGameStore.getState().parties;
+      const party = parties[agent.partyId];
+      if (!party) return;
+
+      // Show speech bubble on the speaking agent
+      setSpeechBubble(agentId, `📢 ${message}`, undefined, 4000);
+
+      // Respond after delay
+      setTimeout(() => {
+        party.memberIds.forEach((memberId) => {
+          if (memberId !== agentId) {
+            const acknowledgments = [
+              "👍",
+              "✅",
+              "On it!",
+              "Roger!",
+            ];
+            const ack = acknowledgments[Math.floor(Math.random() * acknowledgments.length)];
+            setSpeechBubble(memberId, ack, undefined, 2000);
+          }
+        });
+      }, 500 + Math.random() * 1000);
+    },
+    [setSpeechBubble]
+  );
+
+  return {
+    spawnDeepAgent,
+    syncVisualState,
+    handleToolCall,
+    handleError,
+    handleSubagentSpawn,
+    handleAgentCommunication,
+    broadcastToParty,
+  };
+}
+
+// ============================================================================
+// Deep Agent Stream Processor
+// ============================================================================
+
+interface StreamProcessorOptions {
+  agentId: string;
+  onEvent?: (event: AgentEvent) => void;
+  onComplete?: () => void;
+  onError?: (error: Error) => void;
+}
+
+export function processAgentStream(
+  stream: AsyncIterable<any>,
+  options: StreamProcessorOptions
+): { cancel: () => void } {
+  const { agentId, onEvent, onComplete, onError } = options;
+  let cancelled = false;
+
+  const process = async () => {
+    try {
+      for await (const chunk of stream) {
+        if (cancelled) break;
+
+        // Parse chunk and emit events
+        if (chunk?.events) {
+          for (const event of chunk.events) {
+            const agentEvent: AgentEvent = {
+              type: event.type || "agent:spoke",
+              agentId,
+              timestamp: Date.now(),
+              data: event.data,
+            };
+            onEvent?.(agentEvent);
+          }
+        }
+
+        // Handle LangGraph streaming format
+        if (chunk?.[agentId]?.messages) {
+          onEvent?.({
+            type: "agent:spoke",
+            agentId,
+            timestamp: Date.now(),
+            data: chunk[agentId],
+          });
+        }
+      }
+      onComplete?.();
+    } catch (error) {
+      if (!cancelled) {
+        onError?.(error as Error);
+      }
+    }
+  };
+
+  process();
+
+  return {
+    cancel: () => {
+      cancelled = true;
+    },
+  };
+}
+
+// ============================================================================
+// Agent Bridge Component
+// ============================================================================
+
+interface AgentBridgeProviderProps {
+  children: React.ReactNode;
+}
+
+export function AgentBridgeProvider({ children }: AgentBridgeProviderProps) {
+  const activeStreams = useRef<Map<string, () => void>>(new Map());
+  const bridge = useAgentBridge();
+
+  // Register an agent for streaming
+  const registerAgent = useCallback(
+    async (_agentId: string, _deepAgent: MockDeepAgent) => {
+      // NOTE: Using mock stream for browser compatibility
+      // In production, this would connect to a backend API
+      const mockStream = createMockAgentStream(_agentId);
+
+      const { cancel } = processAgentStream(mockStream, {
+        agentId,
+        onEvent: (event) => {
+          bridge.syncVisualState(agentId, event);
+
+          // Handle specific event types
+          switch (event.type) {
+            case "tool:call:start":
+              bridge.handleToolCall(agentId, event.data?.tool || "tool", "start");
+              break;
+            case "tool:call:complete":
+              bridge.handleToolCall(agentId, event.data?.tool || "tool", "complete");
+              break;
+            case "tool:call:error":
+              bridge.handleToolCall(agentId, event.data?.tool || "tool", "error");
+              bridge.handleError(agentId, event.data?.error || "Tool call failed");
+              break;
+            case "error:occurred":
+              bridge.handleError(agentId, event.data?.error || "Unknown error");
+              break;
+            case "subagent:spawned":
+              bridge.handleSubagentSpawn(agentId, event.data?.name || "Subagent");
+              break;
+          }
+        },
+        onComplete: () => {
+          // Stream completed
+        },
+        onError: (error) => {
+          // Stream error - spawn dragon
+          bridge.handleError(agentId, error.message);
+        },
+      });
+
+      activeStreams.current.set(agentId, cancel);
+    },
+    [bridge]
+  );
+
+  // Unregister an agent
+  const unregisterAgent = useCallback((agentId: string) => {
+    const cancel = activeStreams.current.get(agentId);
+    if (cancel) {
+      cancel();
+      activeStreams.current.delete(agentId);
+    }
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      for (const cancel of activeStreams.current.values()) {
+        cancel();
+      }
+      activeStreams.current.clear();
+    };
+  }, []);
+
+  return (
+    <AgentBridgeContext.Provider value={{ registerAgent, unregisterAgent, bridge }}>
+      {children}
+    </AgentBridgeContext.Provider>
+  );
+}
+
+// ============================================================================
+// Agent Bridge Context
+// ============================================================================
+
+interface AgentBridgeContextValue {
+  registerAgent: (agentId: string, deepAgent: MockDeepAgent) => Promise<void>;
+  unregisterAgent: (agentId: string) => void;
+  bridge: ReturnType<typeof useAgentBridge>;
+}
+
+const AgentBridgeContext = createContext<AgentBridgeContextValue | null>(null);
+
+export function useAgentBridgeContext() {
+  const context = useContext(AgentBridgeContext);
+  if (!context) {
+    throw new Error("useAgentBridgeContext must be used within AgentBridgeProvider");
+  }
+  return context;
+}
+
+// ============================================================================
+// Simulated Agent Events (for testing without real Deep Agent)
+// ============================================================================
+
+export function createMockAgentStream(agentId: string): AsyncIterable<AgentEvent> {
+  const events: AgentEvent[] = [
+    { type: "agent:created", agentId, timestamp: Date.now() },
+    { type: "agent:thinking", agentId, timestamp: Date.now() + 100, data: { thought: "🤔 Processing..." } },
+    { type: "tool:call:start", agentId, timestamp: Date.now() + 500, data: { tool: "search" } },
+    { type: "tool:call:complete", agentId, timestamp: Date.now() + 2000, data: { tool: "search" } },
+    { type: "goal:completed", agentId, timestamp: Date.now() + 2500 },
+  ];
+
+  return (async function* () {
+    for (const event of events) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      yield event;
+    }
+  })();
+}
+
+export function createMockAgentErrorStream(agentId: string, error: string): AsyncIterable<AgentEvent> {
+  const events: AgentEvent[] = [
+    { type: "agent:created", agentId, timestamp: Date.now() },
+    { type: "agent:thinking", agentId, timestamp: Date.now() + 100 },
+    { type: "tool:call:start", agentId, timestamp: Date.now() + 500, data: { tool: "code_executor" } },
+    { type: "tool:call:error", agentId, timestamp: Date.now() + 1500, data: { tool: "code_executor", error } },
+    { type: "error:occurred", agentId, timestamp: Date.now() + 1600, data: { error } },
+  ];
+
+  return (async function* () {
+    for (const event of events) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      yield event;
+    }
+  })();
+}
