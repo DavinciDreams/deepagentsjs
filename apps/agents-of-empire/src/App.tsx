@@ -28,7 +28,7 @@ interface GameInitializerProps {
 
 function GameInitializer({ onReady }: GameInitializerProps) {
   useEffect(() => {
-    const { initializeWorld, addStructure } = useGameStore.getState();
+    const { initializeWorld, addStructure, addQuest, addQuestline, updateQuest } = useGameStore.getState();
 
     // Initialize terrain
     initializeWorld(50, 50);
@@ -46,7 +46,7 @@ function GameInitializer({ onReady }: GameInitializerProps) {
     });
 
     // 2. CASTLE - Main goals (large, impressive)
-    addStructure({
+    const knowledgeCastle = addStructure({
       type: "castle",
       position: [40, 0, 10],
       name: "Knowledge Castle",
@@ -55,7 +55,7 @@ function GameInitializer({ onReady }: GameInitializerProps) {
     });
 
     // 3. TOWER - Sub-goals (tall, watchtower style)
-    addStructure({
+    const scoutTower = addStructure({
       type: "tower",
       position: [8, 0, 8],
       name: "Scout Tower",
@@ -63,7 +63,7 @@ function GameInitializer({ onReady }: GameInitializerProps) {
       goalId: "sub-goal-scouting",
     });
 
-    addStructure({
+    const watchtower = addStructure({
       type: "tower",
       position: [42, 0, 42],
       name: "Watchtower",
@@ -72,14 +72,14 @@ function GameInitializer({ onReady }: GameInitializerProps) {
     });
 
     // 4. WORKSHOP - Tasks (building with work areas)
-    addStructure({
+    const codeWorkshop = addStructure({
       type: "workshop",
       position: [10, 0, 40],
       name: "Code Workshop",
       description: "Task: Craft agent solutions",
     });
 
-    addStructure({
+    const researchLab = addStructure({
       type: "workshop",
       position: [40, 0, 40],
       name: "Research Lab",
@@ -100,6 +100,81 @@ function GameInitializer({ onReady }: GameInitializerProps) {
       name: "Rest Camp",
       description: "Agent rest and recovery point",
     });
+
+    // ============================================================================
+    // Initialize Questline: "The Agent's Journey" (5-stage campaign)
+    // ============================================================================
+
+    const quest1 = addQuest({
+      title: "Establish Reconnaissance",
+      description: "Send agents to the Scout Tower",
+      status: "pending",
+      targetStructureId: scoutTower.id,
+      requiredAgents: 2,
+      assignedAgentIds: [],
+      rewards: ["+1 Agent Level"],
+    });
+
+    const quest2 = addQuest({
+      title: "Craft Agent Solutions",
+      description: "Assign agents to the Code Workshop",
+      status: "pending",
+      targetStructureId: codeWorkshop.id,
+      requiredAgents: 3,
+      assignedAgentIds: [],
+      rewards: ["+2 Agent Levels"],
+      prerequisiteQuestIds: [quest1.id],
+    });
+
+    const quest3 = addQuest({
+      title: "Analyze Data Patterns",
+      description: "Send agents to the Research Lab",
+      status: "pending",
+      targetStructureId: researchLab.id,
+      requiredAgents: 3,
+      assignedAgentIds: [],
+      rewards: ["+2 Agent Levels"],
+      prerequisiteQuestIds: [quest2.id],
+    });
+
+    const quest4 = addQuest({
+      title: "Defend the Perimeter",
+      description: "Send agents to the Watchtower",
+      status: "pending",
+      targetStructureId: watchtower.id,
+      requiredAgents: 4,
+      assignedAgentIds: [],
+      rewards: ["+3 Agent Levels"],
+      prerequisiteQuestIds: [quest3.id],
+    });
+
+    const quest5 = addQuest({
+      title: "Complete Research",
+      description: "Send agents to the Knowledge Castle",
+      status: "pending",
+      targetStructureId: knowledgeCastle.id,
+      requiredAgents: 5,
+      assignedAgentIds: [],
+      rewards: ["+5 Agent Levels", "Victory!"],
+      prerequisiteQuestIds: [quest4.id],
+    });
+
+    // Create the questline
+    const questline = addQuestline({
+      name: "The Agent's Journey",
+      description: "A comprehensive campaign to establish your agent empire",
+      status: "not_started",
+      questIds: [quest1.id, quest2.id, quest3.id, quest4.id, quest5.id],
+      currentQuestIndex: 0,
+      requiredCompletedQuests: 5,
+    });
+
+    // Link quests back to the questline
+    updateQuest(quest1.id, { questlineId: questline.id, position: 0 });
+    updateQuest(quest2.id, { questlineId: questline.id, position: 1 });
+    updateQuest(quest3.id, { questlineId: questline.id, position: 2 });
+    updateQuest(quest4.id, { questlineId: questline.id, position: 3 });
+    updateQuest(quest5.id, { questlineId: questline.id, position: 4 });
 
     onReady();
   }, [onReady]);
@@ -197,7 +272,8 @@ function GameScene() {
   const handleStructureClick = useCallback(
     (structureId: string, structure: Structure) => {
       console.log("Structure clicked:", structure.name, structureId);
-      // Could show structure info panel here
+      // Set the selected structure to show info panel
+      useGameStore.getState().setSelectedStructure(structureId);
     },
     []
   );
