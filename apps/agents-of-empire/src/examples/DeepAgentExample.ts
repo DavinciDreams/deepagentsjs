@@ -6,44 +6,38 @@
  */
 
 import "dotenv/config";
-import { tool } from "langchain";
 import { z } from "zod";
-import { createDeepAgent, type SubAgent } from "deepagents";
-import { ChatAnthropic } from "@langchain/anthropic";
+import { createDeepAgent, type SubAgent, createTool, AnthropicProvider } from "deepagents";
 
 // ============================================================================
 // Define Tools
 // ============================================================================
 
-const searchTool = tool(
-  async ({ query }: { query: string }) => {
+const searchTool = createTool({
+  name: "search",
+  description: "Search for information",
+  schema: z.object({
+    query: z.string().describe("The search query"),
+  }),
+  execute: async ({ query }: { query: string }) => {
     console.log("Searching for:", query);
     // Simulate search
     return `Results for "${query}": Found 5 relevant documents.`;
   },
-  {
-    name: "search",
-    description: "Search for information",
-    schema: z.object({
-      query: z.string().describe("The search query"),
-    }),
-  }
-);
+});
 
-const writeFileTool = tool(
-  async ({ path, content }: { path: string; content: string }) => {
+const writeFileTool = createTool({
+  name: "write_file",
+  description: "Write content to a file",
+  schema: z.object({
+    path: z.string().describe("The file path"),
+    content: z.string().describe("The file content"),
+  }),
+  execute: async ({ path, content }: { path: string; content: string }) => {
     console.log("Writing file:", path);
     return `Successfully wrote ${content.length} bytes to ${path}`;
   },
-  {
-    name: "write_file",
-    description: "Write content to a file",
-    schema: z.object({
-      path: z.string().describe("The file path"),
-      content: z.string().describe("The file content"),
-    }),
-  }
-);
+});
 
 // ============================================================================
 // Define Subagents
@@ -67,11 +61,14 @@ const coderSubAgent: SubAgent = {
 // Create the Deep Agent
 // ============================================================================
 
+const anthropicProvider = new AnthropicProvider();
+const model = anthropicProvider.createModel({
+  temperature: 0,
+  modelName: "claude-sonnet-4-20250514",
+});
+
 const agent = createDeepAgent({
-  model: new ChatAnthropic({
-    model: "claude-sonnet-4-20250514",
-    temperature: 0,
-  }),
+  model,
   tools: [searchTool, writeFileTool],
   systemPrompt: `You are a strategic commander in the Agents of Empire game.
 

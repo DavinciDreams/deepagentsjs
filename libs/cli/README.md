@@ -5,7 +5,7 @@
 
 > ⚠️ **Experimental**: This package is highly experimental and under active development. APIs, features, and behavior may change entirely in future releases without notice.
 
-**DeepAgents CLI** - An AI coding assistant that runs in your terminal, powered by [DeepAgents](https://github.com/langchain-ai/deepagents).
+**DeepAgents CLI** - An AI coding assistant that runs in your terminal, powered by [DeepAgents](https://github.com/DavinciDreams/deepagentsjs).
 
 This package wraps the Python [deepagents-cli](https://pypi.org/project/deepagents-cli/) as platform-specific binaries, allowing you to use the full-featured CLI without installing Python.
 
@@ -125,7 +125,7 @@ npm install -g deepagents-cli
 
 ### Unsupported platform
 
-If your platform is not supported, please [open an issue](https://github.com/langchain-ai/deepagentsjs/issues).
+If your platform is not supported, please [open an issue](https://github.com/DavinciDreams/deepagentsjs/issues).
 
 ## Version Synchronization
 
@@ -151,7 +151,7 @@ console.log(`Version: ${version}`);
 
 ## License
 
-MIT - see [LICENSE](https://github.com/langchain-ai/deepagentsjs/blob/main/LICENSE)
+MIT - see [LICENSE](https://github.com/DavinciDreams/deepagentsjs/blob/main/LICENSE)
 
 ## Related
 

@@ -22,7 +22,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/langchain-ai/deepagentsjs.git"
+    "url": "git+https://github.com/DavinciDreams/deepagentsjs.git"
   },
   "keywords": [
     "ai",
@@ -32,12 +32,12 @@
     "typescript",
     "llm"
   ],
-  "author": "LangChain",
+  "author": "DavinciDreams",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/langchain-ai/deepagentsjs/issues"
+    "url": "https://github.com/DavinciDreams/deepagentsjs/issues"
   },
-  "homepage": "https://github.com/langchain-ai/deepagentsjs#readme",
+  "homepage": "https://github.com/DavinciDreams/deepagentsjs#readme",
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
