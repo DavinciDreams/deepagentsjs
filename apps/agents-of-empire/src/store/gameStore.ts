@@ -184,6 +184,7 @@ interface GameState {
   selectionBox: { startX: number; startY: number; endX: number; endY: number; active: boolean } | null;
   hoverAgentId: string | null;
   hoverStructureId: string | null;
+  selectedStructureId: string | null;
   contextMenuOpen: boolean;
   contextMenuPosition: { x: number; y: number } | null;
   contextMenuAgentId: string | null;
@@ -229,6 +230,12 @@ interface GameActions {
     targetAgentId?: string,
     duration?: number
   ) => void;
+  handleAgentCommunication: (
+    fromAgentId: string,
+    toAgentId: string,
+    message: string
+  ) => void;
+  broadcastToParty: (partyId: string, fromAgentId: string, message: string) => void;
 
   // Selection
   selectAgent: (id: string) => void;
@@ -299,6 +306,7 @@ interface GameActions {
   endSelectionBox: () => void;
   setHoverAgent: (id: string | null) => void;
   setHoveredStructure: (id: string | null) => void;
+  setSelectedStructure: (id: string | null) => void;
   openContextMenu: (position: { x: number; y: number }, agentId: string) => void;
   closeContextMenu: () => void;
 
@@ -347,6 +355,7 @@ export const useGameStore = create<GameStore>()(
     selectionBox: null,
     hoverAgentId: null,
     hoverStructureId: null,
+    selectedStructureId: null,
     contextMenuOpen: false,
     contextMenuPosition: null,
     contextMenuAgentId: null,
@@ -540,6 +549,64 @@ export const useGameStore = create<GameStore>()(
         get().updateAgent(agentId, { speechBubble: null });
       }
     }, duration);
+  },
+
+  handleAgentCommunication: (fromAgentId, toAgentId, message) => {
+    const fromAgent = get().agents[fromAgentId];
+    const toAgent = get().agents[toAgentId];
+
+    if (!fromAgent || !toAgent) {
+      console.warn(`[handleAgentCommunication] One or both agents not found: ${fromAgentId}, ${toAgentId}`);
+      return;
+    }
+
+    // Set speech bubble on sender showing directed communication
+    get().setSpeechBubble(fromAgentId, message, toAgentId, 3000);
+
+    // If target agent is in the same party, show acknowledgment
+    if (fromAgent.partyId && fromAgent.partyId === toAgent.partyId) {
+      const acknowledgments = ["Got it!", "Understood!", "Copy that!", "On it!", "Roger!"];
+      setTimeout(() => {
+        get().setSpeechBubble(
+          toAgentId,
+          acknowledgments[Math.floor(Math.random() * acknowledgments.length)],
+          undefined,
+          2000
+        );
+      }, 1000);
+    }
+  },
+
+  broadcastToParty: (partyId, fromAgentId, message) => {
+    const party = get().parties[partyId];
+    const fromAgent = get().agents[fromAgentId];
+
+    if (!party || !fromAgent) {
+      console.warn(`[broadcastToParty] Party or agent not found: ${partyId}, ${fromAgentId}`);
+      return;
+    }
+
+    // Broadcast to all party members
+    party.memberIds.forEach((memberId, index) => {
+      if (memberId !== fromAgentId) {
+        const member = get().agents[memberId];
+        if (member) {
+          // Stagger responses for natural feel
+          setTimeout(() => {
+            const acknowledgments = ["Got it!", "Understood!", "Copy that!", "On it!", "Roger!", "Affirmative!"];
+            get().setSpeechBubble(
+              memberId,
+              acknowledgments[Math.floor(Math.random() * acknowledgments.length)],
+              undefined,
+              2000
+            );
+          }, 200 + index * 150);
+        }
+      }
+    });
+
+    // Sender shows broadcast message
+    get().setSpeechBubble(fromAgentId, message, undefined, 3000);
   },
 
   // Selection Actions
@@ -926,10 +993,60 @@ export const useGameStore = create<GameStore>()(
   },
 
   assignQuestToAgents: (questId, agentIds) => {
+    // First update the quest metadata
     get().updateQuest(questId, {
       assignedAgentIds: agentIds,
       status: "in_progress",
     });
+
+    // Get the quest to find the target structure
+    const quest = get().quests[questId];
+    if (!quest || !quest.targetStructureId) {
+      console.warn(`[assignQuestToAgents] Quest ${questId} has no target structure`);
+      return;
+    }
+
+    // Get the target structure
+    const structure = get().structures[quest.targetStructureId];
+    if (!structure) {
+      console.warn(`[assignQuestToAgents] Structure ${quest.targetStructureId} not found`);
+      return;
+    }
+
+    // Calculate formation positions for agents around the structure
+    const structurePosition = structure.position;
+    const spacing = 2; // Distance between agents
+    const formationRadius = spacing * 2; // Radius of the formation circle
+
+    // Prepare batch updates for all assigned agents
+    const agentUpdates: Array<{ id: string; changes: Partial<GameAgent> }> = [];
+
+    agentIds.forEach((agentId, index) => {
+      const agent = get().agents[agentId];
+      if (!agent) return;
+
+      // Calculate position in circle formation around the structure
+      const angle = (index / agentIds.length) * Math.PI * 2;
+      const targetPosition: [number, number, number] = [
+        structurePosition[0] + Math.cos(angle) * formationRadius,
+        structurePosition[1],
+        structurePosition[2] + Math.sin(angle) * formationRadius,
+      ];
+
+      agentUpdates.push({
+        id: agentId,
+        changes: {
+          targetPosition,
+          state: "MOVING",
+          currentTask: `Proceeding to ${structure.name}`,
+        },
+      });
+    });
+
+    // Apply all agent updates in a single batch
+    if (agentUpdates.length > 0) {
+      get().updateMultipleAgents(agentUpdates);
+    }
   },
 
   completeQuest: (id) => {
@@ -1079,6 +1196,10 @@ export const useGameStore = create<GameStore>()(
 
   setHoveredStructure: (id) => {
     set({ hoverStructureId: id });
+  },
+
+  setSelectedStructure: (id) => {
+    set({ selectedStructureId: id });
   },
 
   openContextMenu: (position, agentId) => {

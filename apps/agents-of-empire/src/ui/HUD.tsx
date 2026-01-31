@@ -7,6 +7,8 @@ import { useCombat } from "../entities/Dragon";
 import { ToolCard, ToolListItem, ToolIcon, RarityBadge, TOOL_TYPE_CONFIG, RARITY_CONFIG } from "./ToolCard";
 import { screenToWorld } from "../core/CameraController";
 import { useAgentBridge } from "../bridge/AgentBridge";
+import { PartyPanel } from "./PartyPanel";
+import { StructureInfoPanel } from "./StructureInfoPanel";
 
 // ============================================================================
 // Minimap Component
@@ -473,7 +475,7 @@ export function QuestTracker({ className = "" }: QuestTrackerProps) {
       initial={{ opacity: 0, x: -50, y: -20 }}
       animate={{ opacity: 1, x: 0, y: 0 }}
       transition={{ duration: 0.5, ease: "easeOut" }}
-      className={`absolute top-4 left-4 bg-gray-900/95 border-2 border-empire-gold rounded-lg p-4 text-white w-80 shadow-lg shadow-empire-gold/20 ${className}`}
+      className={`absolute top-4 left-4 bg-gray-900/95 border-2 border-empire-gold rounded-lg p-4 text-white w-80 shadow-lg shadow-empire-gold/20 pointer-events-auto ${className}`}
     >
       {/* Classic RTS objectives header */}
       <div className="flex items-center gap-2 mb-3 pb-2 border-b border-empire-gold/30">
@@ -729,6 +731,8 @@ export function HUD({ className = "" }: HUDProps) {
   const contextMenuPosition = useGameStore((state) => state.contextMenuPosition);
   const contextMenuAgentId = useGameStore((state) => state.contextMenuAgentId);
   const closeContextMenu = useGameStore((state) => state.closeContextMenu);
+  const selectedStructureId = useGameStore((state) => state.selectedStructureId);
+  const setSelectedStructure = useGameStore((state) => state.setSelectedStructure);
   const spawnDragon = useGameStore((state) => state.spawnDragon);
   const agents = useAgentsShallow();
   const bridge = useAgentBridge();
@@ -891,6 +895,23 @@ export function HUD({ className = "" }: HUDProps) {
 
       {/* Agent panel - Classic RTS unit info (bottom-left) */}
       <AgentPanel />
+
+      {/* Party panel - Bottom-right panel for party management */}
+      <div className="pointer-events-auto">
+        <PartyPanel />
+      </div>
+
+      {/* Structure Info Panel (has pointer events) */}
+      <AnimatePresence>
+        {selectedStructureId && (
+          <div className="pointer-events-auto">
+            <StructureInfoPanel
+              structureId={selectedStructureId}
+              onClose={() => setSelectedStructure(null)}
+            />
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Context menu (has pointer events) */}
       <AnimatePresence>
