@@ -203,4 +203,4 @@ MIT
 
 Inspired by [ralv.ai](https://ralv.ai/) and [Ido Salomon's RTS interface](https://x.com/idosal1/status/2014748619480371707).
 
-Built with [LangGraph Deep Agents](https://github.com/langchain-ai/deepagentsjs).
+Built with [LangGraph Deep Agents](https://github.com/DavinciDreams/deepagentsjs).

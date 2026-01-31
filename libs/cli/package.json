@@ -40,7 +40,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/langchain-ai/deepagentsjs.git",
+    "url": "git+https://github.com/DavinciDreams/deepagentsjs.git",
     "directory": "libs/cli"
   },
   "keywords": [
@@ -52,11 +52,11 @@
     "langgraph",
     "terminal"
   ],
-  "author": "LangChain",
+  "author": "DavinciDreams",
   "bugs": {
-    "url": "https://github.com/langchain-ai/deepagentsjs/issues"
+    "url": "https://github.com/DavinciDreams/deepagentsjs/issues"
   },
-  "homepage": "https://github.com/langchain-ai/deepagentsjs/tree/main/libs/cli#readme",
+  "homepage": "https://github.com/DavinciDreams/deepagentsjs/tree/main/libs/cli#readme",
   "engines": {
     "node": ">=18"
   },
