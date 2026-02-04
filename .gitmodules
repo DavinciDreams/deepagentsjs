@@ -1,0 +1,4 @@
+[submodule "libs/deepagents"]
+    path = libs/deepagents
+    url = https://github.com/DavinciDreams/deepagentsjs.git
+    branch = main

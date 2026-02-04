@@ -475,7 +475,7 @@ export function QuestTracker({ className = "" }: QuestTrackerProps) {
       initial={{ opacity: 0, x: -50, y: -20 }}
       animate={{ opacity: 1, x: 0, y: 0 }}
       transition={{ duration: 0.5, ease: "easeOut" }}
-      className={`absolute top-4 left-4 bg-gray-900/95 border-2 border-empire-gold rounded-lg p-4 text-white w-80 shadow-lg shadow-empire-gold/20 pointer-events-auto ${className}`}
+      className={`absolute top-4 left-4 z-40 bg-gray-900 border-2 border-empire-gold rounded-lg p-4 text-white w-80 shadow-lg shadow-empire-gold/20 pointer-events-auto max-h-[calc(100vh-2rem)] overflow-y-auto ${className}`}
     >
       {/* Classic RTS objectives header */}
       <div className="flex items-center gap-2 mb-3 pb-2 border-b border-empire-gold/30">
